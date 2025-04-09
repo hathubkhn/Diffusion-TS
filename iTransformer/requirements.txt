@@ -1,3 +1,6 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:f5c17fa2e0ecce4a28f63aede2a7f59ae7bb5f13e02ecb90d02da2cf56ebb5da
-size 109
+pandas==1.5.3
+scikit-learn==1.2.2
+numpy==1.23.5
+matplotlib==3.7.0
+torch==2.0.0
+reformer-pytorch==1.4.4

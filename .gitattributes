@@ -1,2 +1,5 @@
 *.csv filter=lfs diff=lfs merge=lfs -text
 *.txt filter=lfs diff=lfs merge=lfs -text
+iTransformer/dataset/* !text !filter !merge !diff
+iTransformer/*.txt !text !filter !merge !diff
+sp500_industry.csv !text !filter !merge !diff
