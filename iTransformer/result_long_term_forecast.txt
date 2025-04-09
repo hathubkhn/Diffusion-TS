@@ -1,0 +1,3 @@
+sp500_96_24_iTransformer_custom_S_ft96_sl48_ll24_pl512_dm8_nh4_el1_dl512_df1_fctimeF_ebTrue_dtExp_projection_0  
+mse:0.06213104724884033, mae:0.19252760708332062
+
