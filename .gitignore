@@ -1,6 +1,6 @@
-iTransformer/iTransformer/dataset/traffic/traffic.csv
-iTransformer/iTransformer/dataset/Solar/solar_AL.txt
-iTransformer/iTransformer/dataset/electricity/electricity.csv
+iTransformer/dataset/traffic/traffic.csv
+iTransformer/dataset/Solar/solar_AL.txt
+iTransformer/dataset/electricity/electricity.csv
 */Scripts/
 */Lib/
 */pyvenv.cfg
