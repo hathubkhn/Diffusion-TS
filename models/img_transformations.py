@@ -71,26 +71,29 @@ class DelayEmbedder(TsImgEmbedder):
         return x[:, :, :original_cols, :original_rows]
 
     def ts_to_img(self, signal, pad=True, mask=0):
-
-        batch, length, features = signal.shape
+        #print(f"signal shape: {signal.shape}")
+        signal = signal.unsqueeze(1)
+        batch, features, length = signal.shape
+        # print("shape of signal:", signal.shape)
+        # print(f"batch: {batch}, length: {length}, features: {features}")
         #  if our sequences are of different lengths, this can happen with physionet and climate datasets
         if self.seq_len != length:
             self.seq_len = length
 
-        x_image = torch.zeros((batch, features, self.embedding, self.embedding))
+        x_image = torch.zeros((batch, features, self.embedding, self.embedding)) #32, 1, 32, 32
         i = 0
         while (i * self.delay + self.embedding) <= self.seq_len:
             start = i * self.delay
             end = start + self.embedding
-            x_image[:, :, :, i] = signal[:, start:end].permute(0, 2, 1)
+            x_image[:, :, :, i] = signal[:, :,start:end]
             i += 1
 
         ### SPECIAL CASE
         if i * self.delay != self.seq_len and i * self.delay + self.embedding > self.seq_len:
             start = i * self.delay
-            end = signal[:, start:].permute(0, 2, 1).shape[-1]
+            end = signal[:, :, start:].shape[-1]
             # end = start + (self.embedding - 1) - missing_vals
-            x_image[:, :, :end, i] = signal[:, start:].permute(0, 2, 1)
+            x_image[:, :, :end, i] = signal[:, :, start:]
             i += 1
 
         # cache the shape of the image before padding

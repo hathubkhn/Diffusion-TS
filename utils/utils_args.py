@@ -36,11 +36,14 @@ def parse_args_uncond():
     parser.add_argument('--batch_size', type=int, help='training batch size')
     parser.add_argument('--learning_rate', type=float, help='learning rate')
     parser.add_argument('--weight_decay', type=float, help='weight decay')
-
+    parser.add_argument('--top_k', type=int, nargs='+', default=[10],
+                    help='Danh sách các giá trị top_k để dùng trong huấn luyện')
+    parser.add_argument('--step_sizes', nargs='+', type=int, default=[1, 2, 5, 10],
+                        help='Danh sách các giá trị bước (step_size) dùng để truy xuất')
     # --- data ---:
     parser.add_argument('--dataset',
                         choices=['kdd_cup', 'traffic_hourly', 'solar_weekly', 'temperature_rain',
-                                 'nn5_daily', 'fred_md', 'sine', 'energy', 'mujoco', 'stocks'], help='training dataset')
+                                 'nn5_daily', 'fred_md', 'sine', 'energy', 'mujoco', 'stocks', 'goog', 'aapl', 'amzn'], help='training dataset')
 
     parser.add_argument('--seq_len', type=int,
                         help='input sequence length,'
@@ -86,7 +89,7 @@ def parse_args_uncond():
         if k not in vars(parsed_args):
             setattr(parsed_args, k, v)
     # for short-term benchamark
-    if parsed_args.dataset in ['stock', 'sine', 'energy', 'mujoco']:
+    if parsed_args.dataset in ['stock', 'sine', 'energy', 'mujoco', 'goog', 'aapl', 'amzn']:
         parsed_args.input_size = parsed_args.input_channels
     return parsed_args
 
@@ -110,7 +113,9 @@ def parse_args_cond():
                         help='tags for neptune logger', nargs='+')
 
     # --- diffusion process ---
+    #parser.add_argument('--reference', type=str, help='the link of the reference time series')
     parser.add_argument('--beta1', type=float, default=1e-5, help='value of beta 1')
+    
     parser.add_argument('--betaT', type=float, default=1e-2, help='value of beta T')
     parser.add_argument('--deterministic', action='store_true', default=False,
                         help='deterministic sampling')
@@ -125,11 +130,25 @@ def parse_args_cond():
     parser.add_argument('--batch_size', type=int, help='training batch size')
     parser.add_argument('--learning_rate', type=float, help='learning rate')
     parser.add_argument('--weight_decay', type=float, help='weight decay')
-
+    parser.add_argument('--top_k', type=int, default=10,
+                    help='Danh sách các giá trị top_k để dùng trong huấn luyện')
+    parser.add_argument('--step_sizes', nargs='+', type=int, default=[1, 2, 5, 10],
+                        help='Danh sách các giá trị bước (step_size) dùng để truy xuất')
+    parser.add_argument('--convert_method', type=str, default='gasf_gadf', nargs='+',
+                        choices=['gasf_gadf', 'gasf_gadf_difference', 'gasf_gadf_linear_trend'],
+                        help='Phương pháp chuyển đổi ảnh (VD: gasf_gadf, gasf_gadf_difference, gasf_gadf_linear_trend)')
+    parser.add_argument('--symbols', type=str,
+                        help='Danh sách các stock symbols cần xử lý (VD: GOOG AMZN AAPL)')
+    parser.add_argument('--model_name', type=str, default='ViT-B-32', nargs='+',
+                        choices=['ViT-B-32', 'ViT-L-14', 'ViT-H-14'],
+                        help='Tên mô hình OpenCLIP để sử dụng')
+    parser.add_argument('--run_type', type=str, default='only',
+                        choices=['only', 'industry', 'all'],
+                        help='Chạy mô hình chỉ với ảnh hay kết hợp với dữ liệu ngành, only hoặc all')
     # --- data ---
     parser.add_argument('--dataset',
                         choices=['kdd_cup', 'traffic_hourly', 'solar_weekly', 'temperature_rain',
-                                 'nn5_daily', 'fred_md', 'sine', 'energy', 'mujoco', 'stocks'], help='training dataset')
+                                 'nn5_daily', 'fred_md', 'sine', 'energy', 'mujoco', 'stocks', 'goog', 'aapl', 'amzn'], help='training dataset')
 
     parser.add_argument('--seq_len', type=int,
                         help='input sequence length,'
@@ -155,9 +174,10 @@ def parse_args_cond():
     parser.add_argument('--diffusion_steps', type=int, help='number of diffusion steps')
     parser.add_argument('--ema', type=bool, help='use ema')
     parser.add_argument('--ema_warmup', type=int, help='ema warmup')
+    parser.add_argument('--patience', type=int, default=50, help='early stopping patience')
 
     # --- logging ---
-    parser.add_argument('--logging_iter', type=int, default=100,
+    parser.add_argument('--logging_iter', type=int, default=5,
                         help='number of iterations between logging')
 
     parser.add_argument('--percent', type=int, default=100)

@@ -68,7 +68,8 @@ class DiffusionProcess():
 
         return x_next
 
-    def impute(self, x, latents, mask, class_labels=None):
+    def impute(self, x, latents, mask, ref,top_k, class_labels=None):
+        #print(f"shape of ref: {ref.shape}")
 
         # Adjust noise levels based on what's supported by the network.
         sigma_min = max(self.sigma_min, self.net.sigma_min)
@@ -99,14 +100,14 @@ class DiffusionProcess():
             x_hat = x_cur + x_to_impute
 
             # Euler step.
-            denoised = self.net(x_hat, t_hat, class_labels).to(torch.float64)
+            denoised = self.net(x_hat, t_hat, ref = ref, top_k = top_k, class_labels = class_labels).to(torch.float64)
             d_cur = (x_hat - denoised) / t_hat
             imputed_x_part = (x_hat + (t_next - t_hat) * d_cur) * (1 - mask)
             x_next = x_image_clear + imputed_x_part
 
             # Apply 2nd order correction.
             if i < self.num_steps - 1:
-                denoised = self.net(x_next, t_next, class_labels).to(torch.float64)
+                denoised = self.net(x_next, t_next, ref = ref, top_k = top_k,class_labels = class_labels).to(torch.float64)
                 d_prime = (x_next - denoised) / t_next
                 x_next = (x_hat + (t_next - t_hat) * (0.5 * d_cur + 0.5 * d_prime)) * (1 - mask) + x_image_clear
 
@@ -161,11 +162,11 @@ class DiffusionProcess():
 
 
     @torch.no_grad()
-    def interpolate(self, x, mask, xT=None):
+    def interpolate(self, x, mask, ref, xT=None):
         if xT is None:
             xT = torch.randn([x.shape[0], *self.shape]).to(device=self.device)
 
-        return self.impute(x, xT, mask)
+        return self.impute(x, xT, mask, ref = ref, top_k=self.args.top_k)
 
 
     @torch.no_grad()

@@ -1,6 +1,7 @@
 import numpy as np
 import torchaudio.transforms as transforms
 import os
+import pandas as pd
 import sys
 import torch
 import torch.utils.data as Data
@@ -94,10 +95,16 @@ def real_data_loading(data_name, seq_len):
     Returns:
       - data: preprocessed data.
     """
-    assert data_name in ['stock', 'energy', 'metro']
+    assert data_name in ['goog', 'amzn', 'aapl', 'energy', 'metro']
 
-    if data_name == 'stock':
-        ori_data = np.loadtxt('./data/short_range/stock_data.csv', delimiter=",", skiprows=1)
+    if data_name == 'goog':
+        ori_data = np.loadtxt('./data/short_range/GOOG.csv', delimiter=",", skiprows=1)
+        # ori_data = pd.read_csv('./data/short_range/GOOG.csv', delimiter=",").values
+        #ori_data = np.genfromtxt('./data/short_range/GOOG.csv', delimiter=",", skip_header=1, dtype=None, encoding='utf-8')
+    elif data_name == 'aapl':
+        ori_data = np.loadtxt('./data/short_range/AAPL.csv', delimiter=",", skiprows=1)
+    elif data_name == 'amzn':
+        ori_data = np.loadtxt('./data/short_range/AMZN.csv', delimiter=",", skiprows=1)
     elif data_name == 'energy':
         ori_data = np.loadtxt('./data/short_range/energy_data.csv', delimiter=",", skiprows=1)
     elif data_name == 'metro':
@@ -131,10 +138,32 @@ def gen_dataloader(args):
         ori_data = torch.Tensor(np.array(ori_data))
         train_set = Data.TensorDataset(ori_data)
 
-    elif args.dataset in ['stock', 'energy']:
+    elif args.dataset in ['goog', 'amzn', 'aapl', 'energy']:
         ori_data = real_data_loading(args.dataset, args.seq_len)
-        ori_data = torch.Tensor(np.array(ori_data))
-        train_set = Data.TensorDataset(ori_data)
+        #ori_data = torch.Tensor(np.array(ori_data))
+        #train_set = Data.TensorDataset(ori_data)
+        
+        ori_data = torch.Tensor(np.array(ori_data))  # [N, seq_len, features] hoặc tương đương
+
+        # Bước 2: Tách dữ liệu thành train/test (ví dụ: 80% train, 20% test)
+        train_ratio = 0.7
+        train_size = int(len(ori_data) * train_ratio)
+        test_size = len(ori_data) - train_size
+
+        train_data = ori_data[:train_size]
+        test_data = ori_data[train_size:]
+        train_set = Data.TensorDataset(train_data)
+        test_set = Data.TensorDataset(test_data)
+
+        train_loader = Data.DataLoader(dataset=train_set, batch_size=args.batch_size, shuffle=True,
+                                num_workers=args.num_workers, drop_last=True)
+
+        test_loader = Data.DataLoader(dataset=test_set, batch_size=args.batch_size, shuffle=False,
+                                num_workers=args.num_workers, drop_last=False)
+
+        return train_loader, test_loader
+
+        
 
     elif args.dataset in ['mujoco']:
         train_set = MujocoDataset(args.seq_len, args.dataset, args.path, 0.0)
@@ -165,7 +194,7 @@ def gen_dataloader(args):
         return train_loader, test_loader
 
     train_loader = Data.DataLoader(dataset=train_set, batch_size=args.batch_size, shuffle=True,
-                                   num_workers=args.num_workers)
+                                   num_workers=args.num_workers, drop_last=True)
 
     # for the short-term time series benchmark, the entire dataset for both training and testing
     return train_loader, train_loader

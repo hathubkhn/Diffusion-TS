@@ -47,6 +47,12 @@ class PrintLogger(BaseLogger):
     def log_name_params(self, name : str, params: Any):
         print(f'{name}:')
         pprint(params)
+    def log_shape(self, name: str, shape: Optional[Dict[str, Any]] = None):
+        if shape is not None:
+            print(f'{name} shape:')
+            pprint(shape)
+        else:
+            print(f'{name} shape not provided')
 
 
 class LoggerL(PrintLogger):

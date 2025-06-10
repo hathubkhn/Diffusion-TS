@@ -24,7 +24,7 @@ class ImagenTime(nn.Module):
         self.T = args.diffusion_steps
 
         self.device = device
-        self.net = EDMPrecond(args.img_resolution, args.input_channels, channel_mult=args.ch_mult,
+        self.net = EDMPrecond(args.img_resolution, args.input_channels, top_k = args.top_k, channel_mult=args.ch_mult,
                               model_channels=args.unet_channels, attn_resolutions=args.attn_resolution)
 
         # delay embedding is used
@@ -91,14 +91,14 @@ class ImagenTime(nn.Module):
 
         return loss, to_log
 
-    def loss_fn_impute(self, x, mask):
+    def loss_fn_impute(self, x, mask, ref=None, top_k=None):
         '''
         x          : real data if idx==None else perturbation data
         idx        : if None (training phase), we perturbed random index.
         '''
 
         to_log = {}
-        output, weight = self.forward_impute(x, mask)
+        output, weight = self.forward_impute(x, mask, ref, top_k=top_k)
         x = self.unpad(x * (1 - mask), x.shape)
         output = self.unpad(output * (1 - mask), x.shape)
         loss = (weight * (output - x).square()).mean()
@@ -113,12 +113,17 @@ class ImagenTime(nn.Module):
         sigma = (rnd_normal * self.P_std + self.P_mean).exp()
         weight = (sigma ** 2 + self.sigma_data ** 2) / (sigma * self.sigma_data) ** 2
         y, augment_labels = augment_pipe(x) if augment_pipe is not None else (x, None)
+        # print shape of y
+        
+
+        
         n = torch.randn_like(y) * sigma
         D_yn = self.net(y + n, sigma, labels, augment_labels=augment_labels)
         return D_yn, weight
 
-    def forward_impute(self, x, mask, labels=None, augment_pipe=None):
-
+    def forward_impute(self, x, mask, ref,top_k, labels=None, augment_pipe=None):
+        # print shape of x
+        #print(f"Shape of x: {x.shape}")
         rnd_normal = torch.randn([x.shape[0], 1, 1, 1], device=x.device)
         sigma = (rnd_normal * self.P_std + self.P_mean).exp()
         weight = (sigma ** 2 + self.sigma_data ** 2) / (sigma * self.sigma_data) ** 2
@@ -132,7 +137,7 @@ class ImagenTime(nn.Module):
         x = x * mask
         y, augment_labels = augment_pipe(x) if augment_pipe is not None else (x, None)
 
-        D_yn = self.net(y + x_to_impute, sigma, labels, augment_labels=augment_labels)
+        D_yn = self.net(y + x_to_impute, sigma, ref,top_k, labels, augment_labels=augment_labels)
         return D_yn, weight
 
     def forward_forecast(self, past, future, labels=None, augment_pipe=None):
