@@ -67,6 +67,18 @@ class DiffusionProcess():
                 x_next = x_hat + (t_next - t_hat) * (0.5 * d_cur + 0.5 * d_prime)
 
         return x_next
+    
+    # # add normalize-denormalize
+    # @staticmethod
+    # def normalize(x):
+    #     mean = x.mean(dim=(1, 2, 3), keepdim=True)  # tính theo từng ảnh
+    #     std = x.std(dim=(1, 2, 3), keepdim=True) + 1e-6  # tránh chia cho 0
+    #     return (x - mean) / std, mean, std
+    
+    # @staticmethod
+    # def denormalize(x_norm, mean, std):
+    #     return x_norm * std + mean
+
 
     def impute(self, x, latents, mask, ref,top_k, class_labels=None):
         #print(f"shape of ref: {ref.shape}")
@@ -98,9 +110,13 @@ class DiffusionProcess():
             x_cur = x_cur * mask
 
             x_hat = x_cur + x_to_impute
+            #x_hat_norm, mean, std = self.normalize(x_hat)
 
             # Euler step.
             denoised = self.net(x_hat, t_hat, ref = ref, top_k = top_k, class_labels = class_labels).to(torch.float64)
+            #denoised = self.net(x_hat_norm, t_hat, ref = ref, top_k = top_k, class_labels = class_labels).to(torch.float64)
+            #denoised = self.denormalize(denoised, mean, std)
+
             d_cur = (x_hat - denoised) / t_hat
             imputed_x_part = (x_hat + (t_next - t_hat) * d_cur) * (1 - mask)
             x_next = x_image_clear + imputed_x_part

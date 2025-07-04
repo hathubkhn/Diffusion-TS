@@ -14,6 +14,10 @@ from utils import persistence
 from torch.nn.functional import silu
 import torch.nn as nn
 import torch.nn.functional as F
+import matplotlib.pyplot as plt
+import seaborn as sns
+import numpy as np
+import os
 #----------------------------------------------------------------------------
 # Unified routine for initializing weights and biases.
 
@@ -113,26 +117,6 @@ class Conv2d(torch.nn.Module):
         if b is not None:
             x = x.add_(b.reshape(1, -1, 1, 1))
 
-        # if ref is not None:
-        #     w_ref = self.weight.to(ref.dtype) if self.weight is not None else None
-        #     b_ref = self.bias.to(ref.dtype) if self.bias is not None else None
-        #     f_ref = self.resample_filter.to(ref.dtype) if self.resample_filter is not None else None
-
-        #     if self.fused_resample and self.up and w is not None:
-        #         ref = torch.nn.functional.conv_transpose2d(ref, f.mul(4).tile([self.in_channels, 1, 1, 1]), groups=self.in_channels, stride=2, padding=max(f_pad - w_pad, 0))
-        #         ref = torch.nn.functional.conv2d(ref, w, padding=max(w_pad - f_pad, 0))
-        #     elif self.fused_resample and self.down and w is not None:
-        #         ref = torch.nn.functional.conv2d(ref, w, padding=w_pad+f_pad)
-        #         ref = torch.nn.functional.conv2d(ref, f.tile([self.out_channels, 1, 1, 1]), groups=self.out_channels, stride=2)
-        #     else:
-        #         if self.up:
-        #             ref = torch.nn.functional.conv_transpose2d(ref, f.mul(4).tile([self.in_channels, 1, 1, 1]), groups=self.in_channels, stride=2, padding=f_pad)
-        #         if self.down:
-        #             ref = torch.nn.functional.conv2d(ref, f.tile([self.in_channels, 1, 1, 1]), groups=self.in_channels, stride=2, padding=f_pad)
-        #         if w is not None:
-        #             ref = torch.nn.functional.conv2d(ref, w, padding=w_pad)
-        #     if b is not None:
-        #         x = x.add_(b.reshape(1, -1, 1, 1))
         return x
 
 #----------------------------------------------------------------------------
@@ -242,14 +226,14 @@ class UNetBlock(torch.nn.Module):
             q, k, v = self.qkv(self.norm2(x)).reshape(x.shape[0] * self.num_heads, x.shape[1] // self.num_heads, 3, -1).unbind(2)
             w = AttentionOp.apply(q, k)
             a = torch.einsum('nqk,nck->ncq', w, v)
-            x = self.proj(a.reshape(*x.shape)).add_(x)
-            x = x * self.skip_scale
-            # shape of x
-            #print(f"Shape Unet of x: {x.shape}")
-
+            x_skip = x.clone()
+            C = x.shape[1]
+            add_norm = AddGroupNorm(num_channels=C).to(x.device)
 
             
-        
+            x = self.proj(a.reshape(*x.shape))
+            x = add_norm(x, x_skip)
+            x = x * self.skip_scale
         return x
 
 
@@ -259,62 +243,139 @@ class CrossAttentionBlock(nn.Module):
         super().__init__()
         self.num_heads = num_heads
         self.top_k = top_k
-        #self.head_dim = out_channels // num_heads
+        self.in_channels = in_channels
+        self.out_channels = out_channels
         assert out_channels % num_heads == 0
-
-        # Sau attention, project về lại in_channels
+        
+        # Projection cho Q từ x
         self.q_proj = nn.Conv2d(in_channels, out_channels, kernel_size=1)
-        self.k_proj = nn.Conv2d(top_k * out_channels, in_channels, kernel_size=1)
-        self.v_proj = nn.Conv2d(top_k * out_channels, in_channels, kernel_size=1)
+        
+        # Encoder riêng cho ref_hist và ref_future - XỬ LÝ TỪNG REF RIÊNG
+        self.hist_encoder = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
+            nn.GroupNorm(8, out_channels),
+            nn.GELU(),
+            nn.AdaptiveAvgPool2d((16, 16)),  # Đảm bảo H=W=16
+            nn.Conv2d(out_channels, out_channels, kernel_size=1)  # Đảm bảo C=out_channels
+        )
+        
+        self.future_encoder = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
+            nn.GroupNorm(8, out_channels),
+            nn.GELU(),
+            nn.AdaptiveAvgPool2d((16, 16)),
+            nn.Conv2d(out_channels, out_channels, kernel_size=1)
+        )
+        
+        # Add & Norm
+        self.norm = nn.GroupNorm(8, out_channels)
 
-    def forward(self, x, ref, top_k, block, block_ref, emb = None):
-          # (B, top_k, H, W)
+    def forward(self, x, ref, top_k, block, block_ref, emb=None, block_idx='unknown', epoch=0, num_epochs=10):
         B, C, H, W = x.shape
-        assert C % self.num_heads == 0, f"C={C} must be divisible by num_heads={self.num_heads}"
-        self.head_dim = C // self.num_heads
-
-        #print(f"Shape of x in CrossAttentionBlock: {x.shape}")  # (B, C, H, W)
-        # Query
-        q = x  # (B, C, H, W)
-        # Key + Value
-        #ref_list = torch.chunk(ref, chunks=top_k, dim=1) 
-        ref_list = list(torch.chunk(ref, chunks=self.top_k, dim=1))   # list of (B, H, W)
-        kv = []
-           
-        for r in ref_list:
-            #r = r.unsqueeze(1)
-            if isinstance(block_ref, UNetBlock):      
-                #print(f"Shape of r: {r.shape}")     # (B, C/2, H, W)
-                r_out = block_ref(r, emb = None)
-                  # (B, C, H, W) 
+        head_dim = self.out_channels // self.num_heads
+        
+        # print(f"[DEBUG] Block {block_idx}: Starting with x.shape = {x.shape}")
+        
+        # Tạo Q từ x
+        q = self.q_proj(x)  # (B, out_channels, H, W)
+        # print(f"[DEBUG] Block {block_idx}: q.shape = {q.shape}")
+        
+        # Xử lý ref_hist và ref_future riêng biệt
+        ref_hist = ref['hist']  # (B, top_k, H, W)
+        ref_future = ref['future']  # (B, top_k, H, W)
+        
+        # print(f"[DEBUG] Block {block_idx}: ref_hist.shape = {ref_hist.shape}")
+        # print(f"[DEBUG] Block {block_idx}: ref_future.shape = {ref_future.shape}")
+        
+        # Encode từng ref_hist riêng biệt để tạo K_i
+        k_list = []
+        for i in range(top_k):
+            hist_i = ref_hist[:, i:i+1, :, :]  # (B, 1, H, W)
+            
+            # Expand để match với in_channels
+            if hist_i.shape[1] != self.in_channels:
+                hist_i = hist_i.expand(-1, self.in_channels, -1, -1)  # (B, in_channels, H, W)
+            
+            # print(f"[DEBUG] Block {block_idx}: Processing hist_{i}, shape = {hist_i.shape}")
+            k_i = self.hist_encoder(hist_i)  # (B, out_channels, H, W)
+            # print(f"[DEBUG] Block {block_idx}: Encoded k_{i}, shape = {k_i.shape}")
+            k_list.append(k_i)
+        
+        # Encode từng ref_future riêng biệt để tạo V_i
+        v_list = []
+        for i in range(top_k):
+            future_i = ref_future[:, i:i+1, :, :]  # (B, 1, H, W)
+            
+            if future_i.shape[1] != self.in_channels:
+                future_i = future_i.expand(-1, self.in_channels, -1, -1)  # (B, in_channels, H, W)
+            
+            # print(f"[DEBUG] Block {block_idx}: Processing future_{i}, shape = {future_i.shape}")
+            v_i = self.future_encoder(future_i)  # (B, out_channels, H, W)
+            # print(f"[DEBUG] Block {block_idx}: Encoded v_{i}, shape = {v_i.shape}")
+            v_list.append(v_i)
+        
+        # đầu vào multi-head attention
+        def prepare(t, tensor_name=""):
+            B_actual, C_actual, H_actual, W_actual = t.shape
+            
+            # Tính head_dim từ tensor
+            if C_actual % self.num_heads != 0:
+                # print(f"[WARNING] Block {block_idx}: C_actual={C_actual} not divisible by num_heads={self.num_heads}")
+                # Sử dụng padding hoặc điều chỉnh
+                actual_head_dim = C_actual // self.num_heads
             else:
-                r_out = block_ref(r)       # (B, C_new, H, W)
-            #print(f"Shape of r_out: {r_out.shape}")  # (B, C_new, H, W)
-            kv.append(r_out)
-        kv = torch.cat(kv, dim=1)        # (B, 2C_new, H, W)
-        k = self.k_proj(kv)
-        v = self.v_proj(kv)
-        #print(f"Shape of x, kv before attention: {x.shape}, {kv.shape if kv is not None else 'None'}")
-         
-        def prepare(t):
-        # t: (B, C, H, W) -> (B*num_heads, H*W, head_dim)
-            return t.reshape(B, self.num_heads, self.head_dim, H, W) \
+                actual_head_dim = C_actual // self.num_heads
+            
+            return t.reshape(B_actual, self.num_heads, actual_head_dim, H_actual, W_actual) \
                     .flatten(3) \
                     .permute(0, 1, 3, 2) \
-                    .reshape(B * self.num_heads, H * W, self.head_dim)
+                    .reshape(B_actual * self.num_heads, H_actual * W_actual, actual_head_dim)
 
-        q = prepare(q)
-        k = prepare(k)
-        v = prepare(v)
+        
+        q = prepare(q)  # (B*num_heads, HW, head_dim)
+        # print(f"[DEBUG] Block {block_idx}: Prepared q.shape = {q.shape}")
+        
+        # Tính attention với từng K_i riêng biệt
+        attention_scores = []
+        for i, k_i in enumerate(k_list):
+            k_i = prepare(k_i)  # (B*num_heads, HW, head_dim)
+            
+            # Tính similarity Q với K_i
+            score_i = torch.bmm(q, k_i.transpose(1, 2)) / (head_dim ** 0.5)  # (B*num_heads, HW, HW)
+            attention_scores.append(score_i)
+            # print(f"[DEBUG] Block {block_idx}: Attention score_{i} shape = {score_i.shape}")
+        
+        # Softmax across all refs 
+        all_scores = torch.stack(attention_scores, dim=1)  # (B*num_heads, top_k, HW, HW)
+        attention_weights = F.softmax(all_scores, dim=1)  # Softmax theo dimension top_k
+        
+        # print(f"[DEBUG] Block {block_idx}: Attention weights shape = {attention_weights.shape}")
+        
+        # Weighted sum với từng V_i (theo RAFT: weighted sum của values)
+        output = torch.zeros_like(q)  # (B*num_heads, HW, head_dim)
+        
+        for i, v_i in enumerate(v_list):
+            v_i = prepare(v_i)  # (B*num_heads, HW, head_dim)
+            
+            # Weighted sum: attention_weights[i] * V_i
+            weighted_v_i = torch.bmm(attention_weights[:, i, :, :], v_i)  # (B*num_heads, HW, head_dim)
+            output += weighted_v_i
+            
+            # print(f"[DEBUG] Block {block_idx}: Added weighted v_{i} to output")
+        
+        # Reshape về format ban đầu
+        output = output.reshape(B, self.num_heads, H * W, head_dim) \
+                      .permute(0, 1, 3, 2) \
+                      .reshape(B, self.out_channels, H, W)
+        
+        # print(f"[DEBUG] Block {block_idx}: Final output shape = {output.shape}")
+        
+        # Add & Norm (residual connection)
+        output = self.norm(output + x)
+        
+        return output, ref
 
-        attn = torch.bmm(q, k.transpose(1, 2)) / (self.head_dim ** 0.5)
-        attn = F.softmax(attn, dim=-1)
-        out = torch.bmm(attn, v)  # (B*num_heads, HW, head_dim)
 
-        out = out.reshape(B, self.num_heads, H * W, self.head_dim) \
-                .permute(0, 1, 3, 2) \
-                .reshape(B, C, H, W)
-        return out, kv
 #----------------------------------------------------------------------------
 # Timestep embedding used in the DDPM++ and ADM architectures.
 
@@ -334,162 +395,7 @@ class PositionalEmbedding(torch.nn.Module):
         x = torch.cat([x.cos(), x.sin()], dim=1)
         return x
 
-#----------------------------------------------------------------------------
-# Timestep embedding used in the NCSN++ architecture.
 
-@persistence.persistent_class
-class FourierEmbedding(torch.nn.Module):
-    def __init__(self, num_channels, scale=16):
-        super().__init__()
-        self.register_buffer('freqs', torch.randn(num_channels // 2) * scale)
-
-    def forward(self, x):
-        x = x.ger((2 * np.pi * self.freqs).to(x.dtype))
-        x = torch.cat([x.cos(), x.sin()], dim=1)
-        return x
-
-#----------------------------------------------------------------------------
-# Reimplementation of the DDPM++ and NCSN++ architectures from the paper
-# "Score-Based Generative Modeling through Stochastic Differential
-# Equations". Equivalent to the original implementation by Song et al.,
-# available at https://github.com/yang-song/score_sde_pytorch
-
-@persistence.persistent_class
-class SongUNet(torch.nn.Module):
-    def __init__(self,
-        img_resolution,                     # Image resolution at input/output.
-        in_channels,                        # Number of color channels at input.
-        out_channels,                       # Number of color channels at output.
-        label_dim           = 0,            # Number of class labels, 0 = unconditional.
-        augment_dim         = 0,            # Augmentation label dimensionality, 0 = no augmentation.
-
-        model_channels      = 128,          # Base multiplier for the number of channels.
-        channel_mult        = [1,2,2,2],    # Per-resolution multipliers for the number of channels.
-        channel_mult_emb    = 4,            # Multiplier for the dimensionality of the embedding vector.
-        num_blocks          = 4,            # Number of residual blocks per resolution.
-        attn_resolutions    = [16],         # List of resolutions with self-attention.
-        dropout             = 0.10,         # Dropout probability of intermediate activations.
-        label_dropout       = 0,            # Dropout probability of class labels for classifier-free guidance.
-
-        embedding_type      = 'positional', # Timestep embedding type: 'positional' for DDPM++, 'fourier' for NCSN++.
-        channel_mult_noise  = 1,            # Timestep embedding size: 1 for DDPM++, 2 for NCSN++.
-        encoder_type        = 'standard',   # Encoder architecture: 'standard' for DDPM++, 'residual' for NCSN++.
-        decoder_type        = 'standard',   # Decoder architecture: 'standard' for both DDPM++ and NCSN++.
-        resample_filter     = [1,1],        # Resampling filter: [1,1] for DDPM++, [1,3,3,1] for NCSN++.
-    ):
-        assert embedding_type in ['fourier', 'positional']
-        assert encoder_type in ['standard', 'skip', 'residual']
-        assert decoder_type in ['standard', 'skip']
-
-        super().__init__()
-        self.label_dropout = label_dropout
-        emb_channels = model_channels * channel_mult_emb
-        noise_channels = model_channels * channel_mult_noise
-        init = dict(init_mode='xavier_uniform')
-        init_zero = dict(init_mode='xavier_uniform', init_weight=1e-5)
-        init_attn = dict(init_mode='xavier_uniform', init_weight=np.sqrt(0.2))
-        block_kwargs = dict(
-            emb_channels=emb_channels, num_heads=1, dropout=dropout, skip_scale=np.sqrt(0.5), eps=1e-6,
-            resample_filter=resample_filter, resample_proj=True, adaptive_scale=False,
-            init=init, init_zero=init_zero, init_attn=init_attn,
-        )
-
-        # Mapping.
-        self.map_noise = PositionalEmbedding(num_channels=noise_channels, endpoint=True) if embedding_type == 'positional' else FourierEmbedding(num_channels=noise_channels)
-        self.map_label = Linear(in_features=label_dim, out_features=noise_channels, **init) if label_dim else None
-        self.map_augment = Linear(in_features=augment_dim, out_features=noise_channels, bias=False, **init) if augment_dim else None
-        self.map_layer0 = Linear(in_features=noise_channels, out_features=emb_channels, **init)
-        self.map_layer1 = Linear(in_features=emb_channels, out_features=emb_channels, **init)
-
-        # Encoder.
-        self.enc = torch.nn.ModuleDict()
-        cout = in_channels
-        caux = in_channels
-        for level, mult in enumerate(channel_mult):
-            res = img_resolution >> level
-            if level == 0:
-                cin = cout
-                cout = model_channels
-                self.enc[f'{res}x{res}_conv'] = Conv2d(in_channels=cin, out_channels=cout, kernel=3, **init)
-            else:
-                self.enc[f'{res}x{res}_down'] = UNetBlock(in_channels=cout, out_channels=cout, down=True, **block_kwargs)
-                if encoder_type == 'skip':
-                    self.enc[f'{res}x{res}_aux_down'] = Conv2d(in_channels=caux, out_channels=caux, kernel=0, down=True, resample_filter=resample_filter)
-                    self.enc[f'{res}x{res}_aux_skip'] = Conv2d(in_channels=caux, out_channels=cout, kernel=1, **init)
-                if encoder_type == 'residual':
-                    self.enc[f'{res}x{res}_aux_residual'] = Conv2d(in_channels=caux, out_channels=cout, kernel=3, down=True, resample_filter=resample_filter, fused_resample=True, **init)
-                    caux = cout
-            for idx in range(num_blocks):
-                cin = cout
-                cout = model_channels * mult
-                attn = (res in attn_resolutions)
-                self.enc[f'{res}x{res}_block{idx}'] = UNetBlock(in_channels=cin, out_channels=cout, attention=attn, **block_kwargs)
-        skips = [block.out_channels for name, block in self.enc.items() if 'aux' not in name]
-
-        # Decoder.
-        self.dec = torch.nn.ModuleDict()
-        for level, mult in reversed(list(enumerate(channel_mult))):
-            res = img_resolution >> level
-            if level == len(channel_mult) - 1:
-                self.dec[f'{res}x{res}_in0'] = UNetBlock(in_channels=cout, out_channels=cout, attention=True, **block_kwargs)
-                self.dec[f'{res}x{res}_in1'] = UNetBlock(in_channels=cout, out_channels=cout, **block_kwargs)
-            else:
-                self.dec[f'{res}x{res}_up'] = UNetBlock(in_channels=cout, out_channels=cout, up=True, **block_kwargs)
-            for idx in range(num_blocks + 1):
-                cin = cout + skips.pop()
-                cout = model_channels * mult
-                attn = (idx == num_blocks and res in attn_resolutions)
-                self.dec[f'{res}x{res}_block{idx}'] = UNetBlock(in_channels=cin, out_channels=cout, attention=attn, **block_kwargs)
-            if decoder_type == 'skip' or level == 0:
-                if decoder_type == 'skip' and level < len(channel_mult) - 1:
-                    self.dec[f'{res}x{res}_aux_up'] = Conv2d(in_channels=out_channels, out_channels=out_channels, kernel=0, up=True, resample_filter=resample_filter)
-                self.dec[f'{res}x{res}_aux_norm'] = GroupNorm(num_channels=cout, eps=1e-6)
-                self.dec[f'{res}x{res}_aux_conv'] = Conv2d(in_channels=cout, out_channels=out_channels, kernel=3, **init_zero)
-
-    def forward(self, x, noise_labels, class_labels, augment_labels=None):
-        # Mapping.
-        emb = self.map_noise(noise_labels)
-        emb = emb.reshape(emb.shape[0], 2, -1).flip(1).reshape(*emb.shape) # swap sin/cos
-        if self.map_label is not None:
-            tmp = class_labels
-            if self.training and self.label_dropout:
-                tmp = tmp * (torch.rand([x.shape[0], 1], device=x.device) >= self.label_dropout).to(tmp.dtype)
-            emb = emb + self.map_label(tmp * np.sqrt(self.map_label.in_features))
-        if self.map_augment is not None and augment_labels is not None:
-            emb = emb + self.map_augment(augment_labels)
-        emb = silu(self.map_layer0(emb))
-        emb = silu(self.map_layer1(emb))
-
-        # Encoder.
-        skips = []
-        aux = x
-        for name, block in self.enc.items():
-            if 'aux_down' in name:
-                aux = block(aux)
-            elif 'aux_skip' in name:
-                x = skips[-1] = x + block(aux)
-            elif 'aux_residual' in name:
-                x = skips[-1] = aux = (x + block(aux)) / np.sqrt(2)
-            else:
-                x = block(x, emb) if isinstance(block, UNetBlock) else block(x)
-                skips.append(x)
-
-        # Decoder.
-        aux = None
-        tmp = None
-        for name, block in self.dec.items():
-            if 'aux_up' in name:
-                aux = block(aux)
-            elif 'aux_norm' in name:
-                tmp = block(x)
-            elif 'aux_conv' in name:
-                tmp = block(silu(tmp))
-                aux = tmp if aux is None else tmp + aux
-            else:
-                if x.shape[1] != block.in_channels:
-                    x = torch.cat([x, skips.pop()], dim=1)
-                x = block(x, emb)
-        return aux
 
 #----------------------------------------------------------------------------
 # Reimplementation of the ADM architecture from the paper
@@ -594,8 +500,8 @@ class DhariwalUNet(torch.nn.Module):
 
         
 
-    def forward(self, x, ref, top_k, noise_labels, class_labels, augment_labels=None):
-        # Mapping.
+    def forward(self, x, ref, top_k, noise_labels, class_labels, augment_labels=None, epoch=0, num_epochs=10):
+        # Mapping (không đổi)
         emb = self.map_noise(noise_labels)
         if self.map_augment is not None and augment_labels is not None:
             emb = emb + self.map_augment(augment_labels)
@@ -608,266 +514,37 @@ class DhariwalUNet(torch.nn.Module):
             emb = emb + self.map_label(tmp)
         emb = silu(emb)
 
-        # Encoder.
+        # Encoder
         skips = []
-        skips_ref = []
         for key in self.enc.keys():
             block = self.enc[key]
             block_ref = self.enc_ref[key]
             block_cross = self.enc_cross_attn[key]
-
+            
             if isinstance(block, UNetBlock):
                 x = block(x, emb)
             else:
                 x = block(x)
-                #ref = block_ref(ref)
-
+            
             x_skip = x.clone()
-            #print("Encoder block: ", key)
-            #print(f"Shape of x, ref before attention: {x.shape}, {ref.shape if ref is not None else 'None'}")
-            # print(f"Shape of x in CrossAttentionBlock: {x.shape}")  # (B, C, H, W)
-            # print(f"Shape of ref in CrossAttentionBlock: {ref.shape}")
-            x, ref = block_cross(x, ref, top_k=top_k, block=block, block_ref=block_ref, emb=None)
-
-            C = x.shape[1]
-            add_norm = AddGroupNorm(num_channels=C).to(x.device)
-            x = add_norm(x, x_skip)
-
+            
+            # Cross attention với ref đã tách hist/future
+            x, ref = block_cross(x, ref, top_k=top_k, block=block, block_ref=block_ref, emb=emb, block_idx=key, epoch=epoch, num_epochs=num_epochs)
+            
             skips.append(x)
-            skips_ref.append(ref)
 
-            
-
-                
-
-
-                #print(f"shape of x and ref after Unet: {x.shape}, {ref.shape if ref is not None else 'None'}")
-                
-                #x = F.conv2d(x, weight=torch.nn.Parameter(torch.empty(x.shape[1], 4 * x.shape[1], 1, 1)))
-            # else:
-            #     x = block(x)
-            #     #print(f"Shape of x in block: {x.shape}")
-            #     in_channels = x.shape[1]
-            #     attn_block = CrossAttentionBlock(in_channels= in_channels, out_channels= 4 * in_channels, num_heads=4)
-            #     x_skip = x.clone()
-            #     #ref_skip = ref.clone()
-            #     x, ref = attn_block(x, ref, top_k = top_k, block = block, emb = emb)
-            #     # fuse x and x_skip
-            #     C = x.shape[1]
-            #     #C2 = ref.shape[1]
-            #     add_norm = AddGroupNorm(num_channels=C).to(x.device)
-            #     x = add_norm(x, x_skip)
-                
-
-
-
-                #print(f"shape of x and ref after conv: {x.shape}, {ref.shape if ref is not None else 'None'}")
-                #print(f"Shape of x after attention: {x.shape}")    
-                #x = F.conv2d(x, weight=torch.nn.Parameter(torch.empty(x.shape[1], 4 * x.shape[1], 1, 1)))
-                #print(f"Shape of x after attention: {x.shape}")
-
-            
-
-        # Decoder.
-        # Print name of self.dec.values() to see the blocks
-        # print("Blocks in decoder:")
-        # for name in self.dec.keys():
-        #     print(name)
+        # Decoder 
         for key in self.dec.keys():
             block = self.dec[key]
-            block_ref = self.dec_ref[key]
-            block_cross = self.dec_cross_attn[key]
-
-
+            
             if x.shape[1] != block.in_channels:
-                #print(f"Shape of x before attention: {x.shape}")
                 x = torch.cat([x, skips.pop()], dim=1)
-                #print(f"Shape of x before attention: {x.shape}")
-
-                ref_list = torch.chunk(ref, chunks=top_k, dim=1)
-                kv = []
-                skip = skips_ref.pop()
-                skip_list = torch.chunk(skip, chunks=top_k, dim=1)
-                
-                kv = []
-                for r, s in zip(ref_list, skip_list):
-                    r = torch.cat([r, s], dim=1)
-                    kv.append(r)
-
-                ref = torch.cat(kv, dim=1)
-
+            
             x = block(x, emb)
-            #ref = block_ref(ref, emb)
-            x, ref = block_cross(x, ref, top_k=top_k, block=block, block_ref=block_ref, emb=None)
 
-        #     print(f"Shape of x after attention: {x.shape}")
-        # print(f"Shape of x after U: {x.shape}")    
         x = self.out_conv(silu(self.out_norm(x)))
         return x
 
-#----------------------------------------------------------------------------
-# Preconditioning corresponding to the variance preserving (VP) formulation
-# from the paper "Score-Based Generative Modeling through Stochastic
-# Differential Equations".
-
-@persistence.persistent_class
-class VPPrecond(torch.nn.Module):
-    def __init__(self,
-        img_resolution,                 # Image resolution.
-        img_channels,                   # Number of color channels.
-        label_dim       = 0,            # Number of class labels, 0 = unconditional.
-        use_fp16        = False,        # Execute the underlying model at FP16 precision?
-        beta_d          = 19.9,         # Extent of the noise level schedule.
-        beta_min        = 0.1,          # Initial slope of the noise level schedule.
-        M               = 1000,         # Original number of timesteps in the DDPM formulation.
-        epsilon_t       = 1e-5,         # Minimum t-value used during training.
-        model_type      = 'SongUNet',   # Class name of the underlying model.
-        **model_kwargs,                 # Keyword arguments for the underlying model.
-    ):
-        super().__init__()
-        self.img_resolution = img_resolution
-        self.img_channels = img_channels
-        self.label_dim = label_dim
-        self.use_fp16 = use_fp16
-        self.beta_d = beta_d
-        self.beta_min = beta_min
-        self.M = M
-        self.epsilon_t = epsilon_t
-        self.sigma_min = float(self.sigma(epsilon_t))
-        self.sigma_max = float(self.sigma(1))
-        self.model = globals()[model_type](img_resolution=img_resolution, in_channels=img_channels, out_channels=img_channels, label_dim=label_dim, **model_kwargs)
-
-    def forward(self, x, sigma, class_labels=None, force_fp32=False, **model_kwargs):
-        x = x.to(torch.float32)
-        sigma = sigma.to(torch.float32).reshape(-1, 1, 1, 1)
-        class_labels = None if self.label_dim == 0 else torch.zeros([1, self.label_dim], device=x.device) if class_labels is None else class_labels.to(torch.float32).reshape(-1, self.label_dim)
-        dtype = torch.float16 if (self.use_fp16 and not force_fp32 and x.device.type == 'cuda') else torch.float32
-
-        c_skip = 1
-        c_out = -sigma
-        c_in = 1 / (sigma ** 2 + 1).sqrt()
-        c_noise = (self.M - 1) * self.sigma_inv(sigma)
-
-        F_x = self.model((c_in * x).to(dtype), c_noise.flatten(), class_labels=class_labels, **model_kwargs)
-        assert F_x.dtype == dtype
-        D_x = c_skip * x + c_out * F_x.to(torch.float32)
-        return D_x
-
-    def sigma(self, t):
-        t = torch.as_tensor(t)
-        return ((0.5 * self.beta_d * (t ** 2) + self.beta_min * t).exp() - 1).sqrt()
-
-    def sigma_inv(self, sigma):
-        sigma = torch.as_tensor(sigma)
-        return ((self.beta_min ** 2 + 2 * self.beta_d * (1 + sigma ** 2).log()).sqrt() - self.beta_min) / self.beta_d
-
-    def round_sigma(self, sigma):
-        return torch.as_tensor(sigma)
-
-#----------------------------------------------------------------------------
-# Preconditioning corresponding to the variance exploding (VE) formulation
-# from the paper "Score-Based Generative Modeling through Stochastic
-# Differential Equations".
-
-@persistence.persistent_class
-class VEPrecond(torch.nn.Module):
-    def __init__(self,
-        img_resolution,                 # Image resolution.
-        img_channels,                   # Number of color channels.
-        label_dim       = 0,            # Number of class labels, 0 = unconditional.
-        use_fp16        = False,        # Execute the underlying model at FP16 precision?
-        sigma_min       = 0.02,         # Minimum supported noise level.
-        sigma_max       = 100,          # Maximum supported noise level.
-        model_type      = 'SongUNet',   # Class name of the underlying model.
-        **model_kwargs,                 # Keyword arguments for the underlying model.
-    ):
-        super().__init__()
-        self.img_resolution = img_resolution
-        self.img_channels = img_channels
-        self.label_dim = label_dim
-        self.use_fp16 = use_fp16
-        self.sigma_min = sigma_min
-        self.sigma_max = sigma_max
-        self.model = globals()[model_type](img_resolution=img_resolution, in_channels=img_channels, out_channels=img_channels, label_dim=label_dim, **model_kwargs)
-
-    def forward(self, x, sigma, class_labels=None, force_fp32=False, **model_kwargs):
-        x = x.to(torch.float32)
-        sigma = sigma.to(torch.float32).reshape(-1, 1, 1, 1)
-        class_labels = None if self.label_dim == 0 else torch.zeros([1, self.label_dim], device=x.device) if class_labels is None else class_labels.to(torch.float32).reshape(-1, self.label_dim)
-        dtype = torch.float16 if (self.use_fp16 and not force_fp32 and x.device.type == 'cuda') else torch.float32
-
-        c_skip = 1
-        c_out = sigma
-        c_in = 1
-        c_noise = (0.5 * sigma).log()
-
-        F_x = self.model((c_in * x).to(dtype), c_noise.flatten(), class_labels=class_labels, **model_kwargs)
-        assert F_x.dtype == dtype
-        D_x = c_skip * x + c_out * F_x.to(torch.float32)
-        return D_x
-
-    def round_sigma(self, sigma):
-        return torch.as_tensor(sigma)
-
-#----------------------------------------------------------------------------
-# Preconditioning corresponding to improved DDPM (iDDPM) formulation from
-# the paper "Improved Denoising Diffusion Probabilistic Models".
-
-@persistence.persistent_class
-class iDDPMPrecond(torch.nn.Module):
-    def __init__(self,
-        img_resolution,                     # Image resolution.
-        img_channels,                       # Number of color channels.
-        label_dim       = 0,                # Number of class labels, 0 = unconditional.
-        use_fp16        = False,            # Execute the underlying model at FP16 precision?
-        C_1             = 0.001,            # Timestep adjustment at low noise levels.
-        C_2             = 0.008,            # Timestep adjustment at high noise levels.
-        M               = 1000,             # Original number of timesteps in the DDPM formulation.
-        model_type      = 'DhariwalUNet',   # Class name of the underlying model.
-        **model_kwargs,                     # Keyword arguments for the underlying model.
-    ):
-        super().__init__()
-        self.img_resolution = img_resolution
-        self.img_channels = img_channels
-        self.label_dim = label_dim
-        self.use_fp16 = use_fp16
-        self.C_1 = C_1
-        self.C_2 = C_2
-        self.M = M
-        self.model = globals()[model_type](img_resolution=img_resolution, in_channels=img_channels, out_channels=img_channels*2, label_dim=label_dim, **model_kwargs)
-
-        u = torch.zeros(M + 1)
-        for j in range(M, 0, -1): # M, ..., 1
-            u[j - 1] = ((u[j] ** 2 + 1) / (self.alpha_bar(j - 1) / self.alpha_bar(j)).clip(min=C_1) - 1).sqrt()
-        self.register_buffer('u', u)
-        self.sigma_min = float(u[M - 1])
-        self.sigma_max = float(u[0])
-
-    def forward(self, x, sigma, class_labels=None, force_fp32=False, **model_kwargs):
-        x = x.to(torch.float32)
-        sigma = sigma.to(torch.float32).reshape(-1, 1, 1, 1)
-        class_labels = None if self.label_dim == 0 else torch.zeros([1, self.label_dim], device=x.device) if class_labels is None else class_labels.to(torch.float32).reshape(-1, self.label_dim)
-        dtype = torch.float16 if (self.use_fp16 and not force_fp32 and x.device.type == 'cuda') else torch.float32
-
-        c_skip = 1
-        c_out = -sigma
-        c_in = 1 / (sigma ** 2 + 1).sqrt()
-        c_noise = self.M - 1 - self.round_sigma(sigma, return_index=True).to(torch.float32)
-
-        F_x = self.model((c_in * x).to(dtype), c_noise.flatten(), class_labels=class_labels, **model_kwargs)
-        assert F_x.dtype == dtype
-        D_x = c_skip * x + c_out * F_x[:, :self.img_channels].to(torch.float32)
-        return D_x
-
-    def alpha_bar(self, j):
-        j = torch.as_tensor(j)
-        return (0.5 * np.pi * j / self.M / (self.C_2 + 1)).sin() ** 2
-
-    def round_sigma(self, sigma, return_index=False):
-        sigma = torch.as_tensor(sigma)
-        index = torch.cdist(sigma.to(self.u.device).to(torch.float32).reshape(1, -1, 1), self.u.reshape(1, -1, 1)).argmin(2)
-        result = index if return_index else self.u[index.flatten()].to(sigma.dtype)
-        return result.reshape(sigma.shape).to(sigma.device)
 
 #----------------------------------------------------------------------------
 # Improved preconditioning proposed in the paper "Elucidating the Design
@@ -898,11 +575,10 @@ class EDMPrecond(torch.nn.Module):
         self.sigma_data = sigma_data
         self.model = globals()[model_type](img_resolution=img_resolution, in_channels=img_channels, out_channels=img_channels, top_k = top_k, label_dim=label_dim, **model_kwargs)
 
-    def forward(self, x, sigma, ref,top_k, class_labels=None, force_fp32=False, **model_kwargs):
+    def forward(self, x, sigma, ref, top_k, class_labels=None, force_fp32=False, epoch=0, num_epochs=10, **model_kwargs):
+        # print(f"EDMPrecond - Epoch: {epoch}, Num_epochs: {num_epochs}")
         x = x.to(torch.float32)
-        #print(f"Shape of x EDM: {x.shape}")
         sigma = sigma.to(torch.float32).reshape(-1, 1, 1, 1)
-        #print(f"Shape of sigma: {sigma.shape}")
         class_labels = None if self.label_dim == 0 else torch.zeros([1, self.label_dim], device=x.device) if class_labels is None else class_labels.to(torch.float32).reshape(-1, self.label_dim)
         dtype = torch.float16 if (self.use_fp16 and not force_fp32 and x.device.type == 'cuda') else torch.float32
 
@@ -911,7 +587,7 @@ class EDMPrecond(torch.nn.Module):
         c_in = 1 / (self.sigma_data ** 2 + sigma ** 2).sqrt()
         c_noise = sigma.log() / 4
 
-        F_x = self.model((c_in * x).to(dtype), ref,top_k, c_noise.flatten(), class_labels=class_labels, **model_kwargs)
+        F_x = self.model((c_in * x).to(dtype), ref, top_k, c_noise.flatten(), class_labels=class_labels, epoch=epoch, num_epochs=num_epochs, **model_kwargs)
         assert F_x.dtype == dtype
         D_x = c_skip * x + c_out * F_x.to(torch.float32)
         return D_x
@@ -919,4 +595,5 @@ class EDMPrecond(torch.nn.Module):
     def round_sigma(self, sigma):
         return torch.as_tensor(sigma)
 
+#----------------------------------------------------------------------------
 #----------------------------------------------------------------------------

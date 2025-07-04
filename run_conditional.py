@@ -2,7 +2,7 @@ import os, sys
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import copy, csv, wandb
-wandb.login(key = 'c9bf0410a696f6094571b4bcf35e7f93c95fe86d')
+wandb.login(key = '4c057ed43aa147417d2e021d9edcd9aa80cdb82e')
 import torch
 import numpy as np
 import torch.multiprocessing
@@ -43,7 +43,8 @@ def main(args):
         step_size = args.step_sizes
         convert_method = args.convert_method
         train_loader, test_loader = gen_dataloader(args)
-        
+        hist_len = args.seq_len // 2
+        future_len = args.seq_len - hist_len
         print(f"Train loader length: {len(train_loader)}, Test loader length: {len(test_loader)}")
         #reference = args.reference if args.reference else None
         #ref = torch.load(reference)
@@ -56,7 +57,7 @@ def main(args):
             for convert_method in args.convert_method:
                 
                     for step_size in args.step_sizes:
-                        wandb.init(project=f"Unet_50_{args.epochs}_{args.top_k}_{step_size}", name="Thong")
+                        wandb.init(project=f"All_Optimize_Skip_Decoder_Unet_report_{args.epochs}_{args.top_k}_{step_size}", name="Binh")
                         early_stopping = EarlyStopping(patience=args.patience, verbose=True)
                         path = os.path.join('checkpoints', args.symbols)
                         if not os.path.exists(path):
@@ -74,15 +75,12 @@ def main(args):
                         local_args.top_k = top_k
                         local_args.step_size = step_size
                         
-                        reference = f"/home/user11/thongt/Diffusion-TS-all-stock/ENCODE_IMAGE_UNET/{local_args.run_type}/{local_args.model_name}/{local_args.symbols}/{local_args.convert_method}/{local_args.seq_len}/{local_args.top_k}_{local_args.step_size}.pt"
+                        reference = f"/home/user11/binhnkt/ImagenTime_New_flow_3_Backup/ENCODE_IMAGE_UNET/{local_args.run_type}/{local_args.model_name}/{local_args.symbols}/{local_args.convert_method}/{local_args.seq_len}/{local_args.top_k}_{local_args.step_size}.pt"
                         ref = torch.load(reference)
                         print(f"Shape of ref: {ref.shape}")
 
                         
                         model = ImagenTime(args=local_args, device=local_args.device).to(local_args.device)
-
-                        
-
 
                         # log model name and parameters
                     
@@ -118,41 +116,41 @@ def main(args):
                             # logger.log_name_params('train/epoch', epoch)
 
                             # --- train loop ---
-                            
+                            total_samples = 0 # the number of sample used
                             for i, data in enumerate(train_loader, 0): #1
-                                if i == 1:
-                                    break
+                                # if i == 1:
+                                #     break
+                                batch = len(data[0])  # because last batch can not enough samples (!= batch size)
                                 
                                 mask_ts, x_ts = get_x_and_mask(args, data)
-                                # print(f"Shape of mask_ts: {mask_ts.shape}, x_ts: {x_ts.shape}") # (32 40)
-                                # print("batch size: ", args.batch_size)
-                                # print("ref sliced shape:", ref[
-                                #     args.batch_size * args.seq_len // 2 * args.top_k * i :
-                                #     args.batch_size * args.seq_len // 2 * args.top_k * (i + 1)
-                                # ].shape)
-                                #print("ref shape:", ref.shape)
-                                # print(args.batch_size * args.seq_len * args.top_k * args.seq_len * i)
-                                # print(args.batch_size * args.seq_len * args.top_k *(args.seq_len * i+1))
-                                x_ref = torch.zeros((args.batch_size, args.seq_len, args.top_k), device=args.device)
-                                for u in range(args.batch_size):
+
+                                #======== Tách ref thành his và future ============
+                                hist_len = args.seq_len // 2
+                                future_len = args.seq_len - hist_len
+                                x_ref_hist = torch.zeros((batch, hist_len, args.top_k), device=args.device)
+                                x_ref_future = torch.zeros((batch, future_len, args.top_k), device=args.device)
+                                # x_ref = torch.zeros((batch, args.seq_len, args.top_k), device=args.device)
+                                for u in range(batch):
                                     for v in range(args.top_k):
-                                        #print(i * args.batch_size * args.seq_len * args.top_k + u * args.seq_len * args.top_k + v * args.seq_len)
-                                        
-                                        #print(i * args.batch_size * args.seq_len * args.seq_len * args.top_k + u * args.seq_len * args.seq_len * args.top_k + (v + 1) * args.seq_len)
-                                        x_ref[u, :, v] = ref[i * args.batch_size * args.seq_len * args.top_k + u * args.seq_len * args.top_k + v * args.seq_len :  i * args.batch_size * args.seq_len * args.top_k + u * args.seq_len * args.top_k + (v + 1) * args.seq_len].to(args.device)
-                                #x_ref = ref[args.batch_size * args.seq_len * args.top_k * args.seq_len * i : args.batch_size * args.seq_len * args.top_k *(args.seq_len * i+1)].to(args.device).view(args.batch_size, args.seq_len, args.top_k)
-                                #x_ref = ref[ 0 : args.batch_size * args.seq_len * args.top_k].to(args.device).view(args.batch_size, args.seq_len, args.top_k)
-                                #x_ref = x_ref.repeat(1, 2, 1)  #(32, 40, 2)
-                                #print(f"Shape of x_ref: {x_ref.shape}")
-                                #print(x_ref[:, :, 0].shape)
-                                sample_img = model.ts_to_img(x_ref[:, :, 0])  # shape: (batch_size, C, H, W)
+                                        full_ref = ref[total_samples * args.seq_len * args.top_k + u * args.seq_len * args.top_k + v * args.seq_len :  total_samples * args.seq_len * args.top_k + u * args.seq_len * args.top_k + (v + 1) * args.seq_len].to(args.device)
+                                        x_ref_hist[u, :, v] = full_ref[:hist_len]
+                                        x_ref_future[u, :, v] = full_ref[hist_len:]
+
+                                total_samples += batch
+                                sample_img = model.ts_to_img(x_ref_hist[:, :, 0])  # shape: (batch_size, C, H, W)
                                 #print(f"Shape of sample_img: {sample_img.shape}")
                                 B, C, H, W = sample_img.shape # B = batch size, C = features, H = height, W = width
-                                x_ref_ts_img = torch.zeros((args.batch_size, args.top_k, H, W), device=args.device)
+                                x_ref_hist_img = torch.zeros((batch, args.top_k, H, W), device=args.device)
+                                x_ref_future_img = torch.zeros((batch, args.top_k, H, W), device=args.device)
 
                                 # Gán từng ảnh transform vào
                                 for j in range(args.top_k):
-                                    x_ref_ts_img[:, j] = model.ts_to_img(x_ref[:, :, j]).squeeze(1)
+                                    x_ref_hist_img[:, j] = model.ts_to_img(x_ref_hist[:, :, j]).squeeze(1)
+                                    x_ref_future_img[:, j] = model.ts_to_img(x_ref_future[:, :, j]).squeeze(1)
+                                ref_dict = {
+                                    'hist': x_ref_hist_img,
+                                    'future': x_ref_future_img
+                                }
                                 #print(f"Shape of x_ref_ts_img: {x_ref_ts_img.shape}")
 
                                 # transform to image
@@ -160,10 +158,8 @@ def main(args):
                                 # pad mask with 1
                                 mask_ts_img = model.ts_to_img(mask_ts,pad_val=1)
                                 optimizer.zero_grad()
-                                # Shape of x_ts_img: {x_ts_img.shape}, mask_ts_img: {mask_ts_img.shape}"
-                                #logger.log_shape(f'train/shape/x_ts_img', x_ts_img.shape)
-                                #logger.log_shape(f'train/shape/mask_ts_img', mask_ts_img.shape)    
-                                loss = model.loss_fn_impute(x_ts_img, mask_ts_img, ref = x_ref_ts_img, top_k=args.top_k)
+
+                                loss = model.loss_fn_impute(x_ts_img, mask_ts_img, ref = ref_dict, top_k=args.top_k,epoch=epoch, num_epochs=args.epochs)
                                 
                                 if len(loss) == 2:
                                     loss, to_log = loss
@@ -184,95 +180,96 @@ def main(args):
                             # --- evaluation loop ---
                             # best_score_mae = float('inf')  # marginal score for long-range metrics, dice score for short-range metrics
                             # best_score_mse = float('inf')  # marginal score for long-range metrics, dice score for short-range metrics
-                            if epoch % args.logging_iter == 0:
-                                mse = 0
-                                mae = 0
-                                model.eval()
-                                with torch.no_grad():
-                                    with model.ema_scope():
-                                        process = DiffusionProcess(args, model.net,
-                                                                (args.input_channels, args.img_resolution, args.img_resolution))
-                                        j = len(train_loader)
-                                        for idx, data in enumerate(test_loader, 0):
-                                            if j == 1:
-                                                break
-                                            if idx == len(test_loader) - 1:
-                                                break
-                    
+                            #if epoch % args.logging_iter == 0:
+                            mse = 0
+                            mae = 0
+                            model.eval()
+                            with torch.no_grad():
+                                with model.ema_scope():
+                                    process = DiffusionProcess(args, model.net,
+                                                            (args.input_channels, args.img_resolution, args.img_resolution))
+                                    j = len(train_loader)
+                                    for idx, data in enumerate(test_loader, 0):
 
-                                            mask_ts, x_ts = get_x_and_mask(args, data)
+                                        batch = len(data[0])
+                
 
-                                            # transform to image
-                                            # x_ref = ref[ 0 : args.batch_size * args.seq_len // 2 * args.top_k].to(args.device).view(args.batch_size, args.seq_len//2, args.top_k)
-                                            # x_ref = x_ref.repeat(1, 2, 1)  #(32, 40, 2)
-                                            x_ref = torch.zeros((args.batch_size, args.seq_len, args.top_k), device=args.device)
-                                            for u in range(args.batch_size):
-                                                for v in range(args.top_k):
-                                                    # print("chỉ số: ",idx + j) #99
-                                                    # print("batch size: ", args.batch_size) #8 
-                                                    # print((idx + j) * args.batch_size * args.seq_len * args.top_k + u * args.seq_len * args.top_k + v * args.seq_len)
-                                                    
-                                                    #print(i * args.batch_size * args.seq_len * args.seq_len * args.top_k + u * args.seq_len * args.seq_len * args.top_k + (v + 1) * args.seq_len)
-                                                    x_ref[u, :, v] = ref[(idx + j) * args.batch_size * args.seq_len * args.top_k + u * args.seq_len * args.top_k + v * args.seq_len :  (idx + j) * args.batch_size * args.seq_len * args.top_k + u * args.seq_len * args.top_k + (v + 1) * args.seq_len].to(args.device)
-                                            
-                                            #print(f"Shape of x_ref: {x_ref.shape}")
-                                            #print(x_ref[:, :, 0].shape)
-                                            sample_img = model.ts_to_img(x_ref[:, :, 0])  # shape: (batch_size, C, H, W)
-                                            #print(f"Shape of sample_img: {sample_img.shape}")
-                                            B, C, H, W = sample_img.shape # B = batch size, C = features, H = height, W = width
-                                            x_ref_ts_img = torch.zeros((args.batch_size, args.top_k, H, W), device=args.device)
+                                        mask_ts, x_ts = get_x_and_mask(args, data)
+# Thay thế x bằng his + future
+                                        x_ref_hist = torch.zeros((batch, hist_len, args.top_k), device=args.device)
+                                        x_ref_future = torch.zeros((batch, future_len, args.top_k), device=args.device)
+                                        for u in range(batch):
+                                            for v in range(args.top_k):
 
-                                            # Gán từng ảnh transform vào
-                                            for i in range(args.top_k):
-                                                x_ref_ts_img[:, i] = model.ts_to_img(x_ref[:, :, i]).squeeze(1)
-                                            #print(f"Shape of x_ref_ts_img: {x_ref_ts_img.shape}")
-                                            x_ts_img = model.ts_to_img(x_ts)
-                                            mask_ts_img = model.ts_to_img(mask_ts, pad_val=1)
+                                                # add normalize
+                                                full_ref = ref[total_samples * args.seq_len * args.top_k + u * args.seq_len * args.top_k + v * args.seq_len :  total_samples * args.seq_len * args.top_k + u * args.seq_len * args.top_k + (v + 1) * args.seq_len].to(args.device)
+                                                x_ref_hist[u, :, v] = full_ref[:hist_len]
+                                                x_ref_future[u, :, v] = full_ref[hist_len:]
+                                        total_samples += batch
+                                        sample_img = model.ts_to_img(x_ref_hist[:, :, 0])  # shape: (batch_size, C, H, W)
+                                        #print(f"Shape of sample_img: {sample_img.shape}")
+                                        B, C, H, W = sample_img.shape # B = batch size, C = features, H = height, W = width
+                                        x_ref_hist_img = torch.zeros((batch, args.top_k, H, W), device=args.device)
+                                        x_ref_future_img = torch.zeros((batch, args.top_k, H, W), device=args.device)
 
-                                            # sample from the model
-                                            # and impute, both interpolation and extrapolation are similar just the mask is different
+                                        # Gán từng ảnh transform vào
+                                        for i in range(args.top_k):
+                                            x_ref_hist_img[:, i] = model.ts_to_img(x_ref_hist[:, :, i]).squeeze(1)
+                                            x_ref_future_img[:, i] = model.ts_to_img(x_ref_future[:, :, i]).squeeze(1)
+
+                                        ref_dict = {
+                                            'hist': x_ref_hist_img,
+                                            'future': x_ref_future_img
+                                        }
+
+                                        # print(f"Shape of x_ref_hist_img: {x_ref_hist_img.shape}")
+                                        x_ts_img = model.ts_to_img(x_ts)
+                                        mask_ts_img = model.ts_to_img(mask_ts, pad_val=1)
+
+                                        # sample from the model
+                                        # and impute, both interpolation and extrapolation are similar just the mask is different
+                                    
+                                        x_img_sampled = process.interpolate(x_ts_img, mask_ts_img, ref = ref_dict).to(x_ts_img.device)
+                                        x_ts_sampled = model.img_to_ts(x_img_sampled)
+
+                                        # task evaluation
+                                        x_ts= x_ts.squeeze(0)
+                                        x_ts_sampled = x_ts_sampled.squeeze(0)
+                                        #print(f"Shape of x_ts: {x_ts.shape}, x_ts_sampled: {x_ts_sampled.shape}, mask_ts: {mask_ts.shape}")
+                                        mse_mean = F.mse_loss(x_ts[mask_ts == 0].to(x_ts.device), x_ts_sampled[mask_ts == 0])
                                         
-                                            x_img_sampled = process.interpolate(x_ts_img, mask_ts_img, ref = x_ref_ts_img).to(x_ts_img.device)
-                                            x_ts_sampled = model.img_to_ts(x_img_sampled)
+                                        mae_mean = F.l1_loss(x_ts[mask_ts == 0].to(x_ts.device), x_ts_sampled[mask_ts == 0])
+                                        mse += mse_mean.item()
+                                        mae += mae_mean.item()
+                            
+                            
 
-                                            # task evaluation
-                                            x_ts= x_ts.squeeze(0)
-                                            x_ts_sampled = x_ts_sampled.squeeze(0)
-                                            #print(f"Shape of x_ts: {x_ts.shape}, x_ts_sampled: {x_ts_sampled.shape}, mask_ts: {mask_ts.shape}")
-                                            mse_mean = F.mse_loss(x_ts[mask_ts == 0].to(x_ts.device), x_ts_sampled[mask_ts == 0])
-                                            
-                                            mae_mean = F.l1_loss(x_ts[mask_ts == 0].to(x_ts.device), x_ts_sampled[mask_ts == 0])
-                                            mse += mse_mean.item()
-                                            mae += mae_mean.item()
-                                
-                                
+                            scores = {'mse': mse / (idx + 1), 'mae': mae / (idx + 1)}
+                            eval_losses.append(scores['mse']) # use for wandb
+                            vali_loss = scores['mse'] # use for Early stopping
+                            print(f"Epoch {epoch}, MSE: {scores['mse']}, MAE: {scores['mae']}")
+                            wandb.log({
+                                "val/mse": scores['mse'],
+                                "val/mae": scores['mae']
+                            }, step=epoch)
+                            for key, value in scores.items():
+                                logger.log(f'test/{key}', value, epoch)
+                            
+                            early_stopping(vali_loss, model, path)
+                            if early_stopping.early_stop:
+                                print("Early stopping")
+                                break
+                            
 
-                                scores = {'mse': mse / (idx + 1), 'mae': mae / (idx + 1)}
-                                eval_losses.append(scores['mse']) # use for wandb
-                                vali_loss = scores['mse'] # use for Early stopping
-                                print(f"Epoch {epoch}, MSE: {scores['mse']}, MAE: {scores['mae']}")
-                                wandb.log({
-                                    "val/mse": scores['mse'],
-                                    "val/mae": scores['mae']
-                                }, step=epoch)
-                                for key, value in scores.items():
-                                    logger.log(f'test/{key}', value, epoch)
-                                
-                                early_stopping(vali_loss, model, path)
-                                if early_stopping.early_stop:
-                                    print("Early stopping")
-                                    break
-                                
-
-                                # --- save checkpoint ---
-                                curr_score_mse = scores['mse']
-                                curr_score_mae = scores['mae']
-                                if curr_score_mse < best_score_mse:
-                                    best_score_mse = curr_score_mse
-                                    best_score_mae = curr_score_mae
-                                    print(f"🟢 New best at epoch {epoch}, top k {local_args.top_k}, step size {step_size}: MSE={best_score_mse:.4f}, MAE={best_score_mae:.4f}")
-                                    ema_model = model.model_ema if args.ema else None
-                                    save_checkpoint(args.log_dir, state, epoch, ema_model)
+                            # --- save checkpoint ---
+                            curr_score_mse = scores['mse']
+                            curr_score_mae = scores['mae']
+                            if curr_score_mse < best_score_mse:
+                                best_score_mse = curr_score_mse
+                                best_score_mae = curr_score_mae
+                                print(f"🟢 New best at epoch {epoch}, top k {local_args.top_k}, step size {step_size}: MSE={best_score_mse:.4f}, MAE={best_score_mae:.4f}")
+                                ema_model = model.model_ema if args.ema else None
+                                save_checkpoint(args.log_dir, state, epoch, ema_model)
                         
                         wandb.finish()
                         
@@ -281,7 +278,7 @@ def main(args):
                         #csv_path = os.path.join('/home/user11/thongt/ImagenTime_New_flow_3/logs', 'best_scores.csv')
                         print('hello')
                         import pandas as pd
-                        filename_csv = "logs/New_Unet_report.csv"
+                        filename_csv = "logs/New_Skip_Decoder_Unet_report.csv"
 
                         data = {
                             "seed": [local_args.seed],
@@ -296,7 +293,7 @@ def main(args):
                             'top k': [local_args.top_k], 
                             'step size': [local_args.step_size],
                             'batch size': [args.batch_size], 
-                            'epochs': [local_args.step_size], 
+                            'epochs': [local_args.epochs], 
                             'Best_MSE': [best_score_mse],
                             'Best_MAE': [best_score_mae]
                         }

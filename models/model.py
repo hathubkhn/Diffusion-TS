@@ -91,14 +91,14 @@ class ImagenTime(nn.Module):
 
         return loss, to_log
 
-    def loss_fn_impute(self, x, mask, ref=None, top_k=None):
+    def loss_fn_impute(self, x, mask, epoch, num_epochs, ref=None, top_k=None):
         '''
         x          : real data if idx==None else perturbation data
         idx        : if None (training phase), we perturbed random index.
         '''
 
         to_log = {}
-        output, weight = self.forward_impute(x, mask, ref, top_k=top_k)
+        output, weight = self.forward_impute(x, mask, ref, top_k, epoch=epoch, num_epochs=num_epochs)        
         x = self.unpad(x * (1 - mask), x.shape)
         output = self.unpad(output * (1 - mask), x.shape)
         loss = (weight * (output - x).square()).mean()
@@ -121,9 +121,7 @@ class ImagenTime(nn.Module):
         D_yn = self.net(y + n, sigma, labels, augment_labels=augment_labels)
         return D_yn, weight
 
-    def forward_impute(self, x, mask, ref,top_k, labels=None, augment_pipe=None):
-        # print shape of x
-        #print(f"Shape of x: {x.shape}")
+    def forward_impute(self, x, mask, ref, top_k, labels=None, augment_pipe=None, epoch=0, num_epochs=10):
         rnd_normal = torch.randn([x.shape[0], 1, 1, 1], device=x.device)
         sigma = (rnd_normal * self.P_std + self.P_mean).exp()
         weight = (sigma ** 2 + self.sigma_data ** 2) / (sigma * self.sigma_data) ** 2
@@ -135,10 +133,23 @@ class ImagenTime(nn.Module):
 
         # clear image
         x = x * mask
+
         y, augment_labels = augment_pipe(x) if augment_pipe is not None else (x, None)
 
-        D_yn = self.net(y + x_to_impute, sigma, ref,top_k, labels, augment_labels=augment_labels)
+        # Tách ref thành hist và future
+        ref_hist = ref['hist']  # (B, top_k, H, W)
+        ref_future = ref['future']  # (B, top_k, H, W)
+        
+        # Kết hợp ref_hist và ref_future 
+        ref_combined = {
+            'hist': ref_hist,
+            'future': ref_future
+        }
+
+        D_yn = self.net(y + x_to_impute, sigma, ref_combined, top_k, labels, augment_labels=augment_labels, epoch=epoch, num_epochs=num_epochs)
+
         return D_yn, weight
+
 
     def forward_forecast(self, past, future, labels=None, augment_pipe=None):
         s, e = past.shape[-1], future.shape[-1]
