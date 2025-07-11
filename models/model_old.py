@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from contextlib import contextmanager
-from models.networks import EDMPrecond
+from models.networks_old import EDMPrecond
 from models.ema import LitEma
 from models.img_transformations import STFTEmbedder, DelayEmbedder
 
@@ -43,7 +43,7 @@ class ImagenTime(nn.Module):
             self.model_ema = LitEma(self.net, decay=0.9999, use_num_upates=True, warmup=args.ema_warmup)
         else:
             self.use_ema = False
-
+        print(f"Epoch ======== {epoch}")
     def ts_to_img(self, signal, pad_val=None):
         """
         Args:
@@ -91,17 +91,14 @@ class ImagenTime(nn.Module):
 
         return loss, to_log
 
-    # def loss_fn_impute(self, x, mask, epoch, num_epochs, ref=None, top_k=None):
-    def loss_fn_impute(self, x, mask, epoch, num_epochs, ref_hist=None,ref_future=None, top_k=None):
+    def loss_fn_impute(self, x, mask, epoch, num_epochs, ref=None, top_k=None):
         '''
         x          : real data if idx==None else perturbation data
         idx        : if None (training phase), we perturbed random index.
         '''
 
-        to_log = {} 
-        # output, weight = self.forward_impute(x, mask, ref_hist,ref_future, top_k, epoch=epoch, num_epochs=num_epochs)        
-
-        output, weight = self.forward_impute(x, mask, ref_hist,ref_future, top_k, epoch=epoch, num_epochs=num_epochs)        
+        to_log = {}
+        output, weight = self.forward_impute(x, mask, ref, top_k, epoch=epoch, num_epochs=num_epochs)        
         x = self.unpad(x * (1 - mask), x.shape)
         output = self.unpad(output * (1 - mask), x.shape)
         loss = (weight * (output - x).square()).mean()
@@ -124,25 +121,22 @@ class ImagenTime(nn.Module):
         D_yn = self.net(y + n, sigma, labels, augment_labels=augment_labels)
         return D_yn, weight
 
-    def forward_impute(self, x, mask, ref_hist,ref_future, top_k, labels=None, augment_pipe=None, epoch=0, num_epochs=10):        # print shape of x
-        #print(f"Shape of x: {x.shape}") x_ts_img, mask_ts_img (32, 1, 16, 16)
+    def forward_impute(self, x, mask, ref, top_k, labels=None, augment_pipe=None, epoch=0, num_epochs=10):        # print shape of x
+        #print(f"Shape of x: {x.shape}")
         rnd_normal = torch.randn([x.shape[0], 1, 1, 1], device=x.device)
         sigma = (rnd_normal * self.P_std + self.P_mean).exp()
         weight = (sigma ** 2 + self.sigma_data ** 2) / (sigma * self.sigma_data) ** 2
 
         # noisy impute part
         n = torch.randn_like(x) * sigma
-        noise_impute = n * (1 - mask) # noise for fut
-        x_to_impute = x * (1 - mask) + noise_impute  # fut noise
+        noise_impute = n * (1 - mask)
+        x_to_impute = x * (1 - mask) + noise_impute
 
         # clear image
-        x = x * mask  # history x --> image, seq * mask , seq * (1 - mask)
-        # print("Binhnkt")
-        # print(f"Shape of x: {x.shape}")
-        # print(x)
+        x = x * mask
         y, augment_labels = augment_pipe(x) if augment_pipe is not None else (x, None)
 
-        D_yn = self.net(y + x_to_impute, sigma, ref_hist,ref_future, top_k, labels, augment_labels=augment_labels, epoch=epoch, num_epochs=num_epochs)
+        D_yn = self.net(y + x_to_impute, sigma, ref,top_k, labels, augment_labels=augment_labels, epoch=epoch, num_epochs=num_epochs)
         return D_yn, weight
 
     def forward_forecast(self, past, future, labels=None, augment_pipe=None):

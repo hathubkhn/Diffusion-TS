@@ -80,9 +80,7 @@ class DiffusionProcess():
         return x_norm * std + mean
 
 
-    # def impute(self, x, latents, mask, ref,top_k, class_labels=None):
-    def impute(self, x, latents, mask, ref_hist,ref_future, top_k, class_labels=None):
-
+    def impute(self, x, latents, mask, ref,top_k, class_labels=None):
         #print(f"shape of ref: {ref.shape}")
 
         # Adjust noise levels based on what's supported by the network.
@@ -115,9 +113,7 @@ class DiffusionProcess():
             #x_hat_norm, mean, std = self.normalize(x_hat)
 
             # Euler step.
-            # denoised = self.net(x_hat, t_hat, ref = ref, top_k = top_k, class_labels = class_labels).to(torch.float64)
-            denoised = self.net(x_hat, t_hat, ref_hist = ref_hist,ref_future=ref_future, top_k = top_k, class_labels = class_labels).to(torch.float64)
-
+            denoised = self.net(x_hat, t_hat, ref = ref, top_k = top_k, class_labels = class_labels).to(torch.float64)
             #denoised = self.net(x_hat_norm, t_hat, ref = ref, top_k = top_k, class_labels = class_labels).to(torch.float64)
             #denoised = self.denormalize(denoised, mean, std)
 
@@ -127,9 +123,7 @@ class DiffusionProcess():
 
             # Apply 2nd order correction.
             if i < self.num_steps - 1:
-                # denoised = self.net(x_next, t_next, ref = ref, top_k = top_k,class_labels = class_labels).to(torch.float64)
-                denoised = self.net(x_next, t_next, ref_hist = ref_hist,ref_future=ref_future, top_k = top_k,class_labels = class_labels).to(torch.float64)
-
+                denoised = self.net(x_next, t_next, ref = ref, top_k = top_k,class_labels = class_labels).to(torch.float64)
                 d_prime = (x_next - denoised) / t_next
                 x_next = (x_hat + (t_next - t_hat) * (0.5 * d_cur + 0.5 * d_prime)) * (1 - mask) + x_image_clear
 
@@ -184,12 +178,11 @@ class DiffusionProcess():
 
 
     @torch.no_grad()
-    def interpolate(self, x, mask, ref_hist,ref_future, xT=None):
+    def interpolate(self, x, mask, ref, xT=None):
         if xT is None:
             xT = torch.randn([x.shape[0], *self.shape]).to(device=self.device)
 
-        # return self.impute(x, xT, mask, ref = ref, top_k=self.args.top_k)
-        return self.impute(x, xT, mask, ref_hist = ref_hist,ref_future=ref_future, top_k=self.args.top_k)
+        return self.impute(x, xT, mask, ref = ref, top_k=self.args.top_k)
 
 
     @torch.no_grad()

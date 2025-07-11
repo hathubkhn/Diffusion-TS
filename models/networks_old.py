@@ -85,8 +85,9 @@ class Conv2d(torch.nn.Module):
         f = f.ger(f).unsqueeze(0).unsqueeze(1) / f.sum().square()
         self.register_buffer('resample_filter', f if up or down else None)
 
-    # def forward(self, x, up=False, ref=None):
-    def forward(self, x, up=False, ref_hist=None,ref_future=None):
+    def forward(self, x, up=False, ref=None):
+        # print(f"Shape of x in Conv2d: {x.shape}")
+        #print(f"Shape of ref in Conv2d: {ref.shape}")
         w = self.weight.to(x.dtype) if self.weight is not None else None
 
         b = self.bias.to(x.dtype) if self.bias is not None else None
@@ -169,6 +170,7 @@ class UNetBlock(torch.nn.Module):
     ):
         super().__init__()
        
+       
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.emb_channels = emb_channels
@@ -177,6 +179,7 @@ class UNetBlock(torch.nn.Module):
         self.skip_scale = skip_scale
         self.adaptive_scale = adaptive_scale
         
+
         self.norm0 = GroupNorm(num_channels=in_channels, eps=eps)
         self.conv0 = Conv2d(in_channels=in_channels, out_channels=out_channels, kernel=3, up=up, down=down, resample_filter=resample_filter, **init)
         self.affine = Linear(in_features=emb_channels, out_features=out_channels*(2 if adaptive_scale else 1), **init)
@@ -193,15 +196,14 @@ class UNetBlock(torch.nn.Module):
             self.qkv = Conv2d(in_channels=out_channels, out_channels=out_channels*3, kernel=1, **(init_attn if init_attn is not None else init))
             self.proj = Conv2d(in_channels=out_channels, out_channels=out_channels, kernel=1, **init_zero)
 
-    # def forward(self, x, emb, up=False, ref=None):ref_hist=None,ref_future=None
-    def forward(self, x, emb, up=False, ref_hist=None,ref_future=None):
+    def forward(self, x, emb, up=False, ref=None):
         #print(f"Shape of x: {x.shape}")
         #print(f"shape of ref: {ref.shape if ref is not None else 'None'}")
         orig = x
         #x = self.conv0(silu(self.norm0(x)))
         #print(f"Shape of x before conv0: {x.shape}")
         x = self.conv0(silu(self.norm0(x)))
-        # print(f"Shape of x after conv0: {x.shape}")
+        #print(f"Shape of x after conv0: {x.shape}")
         
         if emb is not None:
             params = self.affine(emb).unsqueeze(2).unsqueeze(3).to(x.dtype)
@@ -212,8 +214,6 @@ class UNetBlock(torch.nn.Module):
                 x = silu(self.norm1(x.add_(params)))
         else:
             x = silu(self.norm1(x))
-        
-        # print(f"Shape of x after + emb: {x.shape}")
 
 
         x = self.conv1(torch.nn.functional.dropout(x, p=self.dropout, training=self.training))
@@ -234,7 +234,6 @@ class UNetBlock(torch.nn.Module):
             x = self.proj(a.reshape(*x.shape))
             x = add_norm(x, x_skip)
             x = x * self.skip_scale
-            
         return x
 
 
@@ -272,79 +271,46 @@ class CrossAttentionBlock(nn.Module):
         self.q_proj = nn.Conv2d(in_channels, out_channels, kernel_size=1)
         self.k_proj = nn.Conv2d(top_k * out_channels, in_channels, kernel_size=1)
         self.v_proj = nn.Conv2d(top_k * out_channels, in_channels, kernel_size=1)
-    def forward(self, x, ref_hist, ref_future, top_k, block, block_ref_hist, block_ref_future, emb=None, block_idx='unknown', epoch=0, num_epochs=20):
-        # print("x trong forward cross ")
 
+    def forward(self, x, ref, top_k, block, block_ref, emb=None, block_idx='unknown', epoch=0, num_epochs=10):
         B, C, H, W = x.shape
+        assert C % self.num_heads == 0, f"C={C} must be divisible by num_heads={self.num_heads}"
         self.head_dim = C // self.num_heads
-        torch.set_printoptions(threshold=float('inf'), precision=3, linewidth=200)
-        q = self.q_proj(x)  # (B, C, H, W) (32,64,16,16)
 
-        # print(f"Đây là q {q}")
-        # Tách từng ref riêng biệt
-        # print(f"đây là shape {ref_hist.shape} {ref_hist} ") #(32,3,16,16)
-        ref_hist_list = list(torch.chunk(ref_hist, chunks=self.top_k, dim=1)) #(32,1,16,16)
-        ref_future_list = list(torch.chunk(ref_future, chunks=self.top_k, dim=1))
-        
-        # Xử lý từng ref_hist để tạo K_i
-        k_list = []
-        for r_hist in ref_hist_list:
-            if isinstance(block_ref_hist, UNetBlock):
-                k_i = block_ref_hist(r_hist, emb=emb) if emb is not None else block_ref_hist(r_hist)
-                # print(f"hi 111 {k_i}") 
+        q = self.q_proj(x)  # (B, C, H, W) ([32, 64, 16, 16])
+        print(f"Đây là Q: {q.shape}")
+        print(f"REF: {ref.shape}")
+        ref_list = list(torch.chunk(ref, chunks=self.top_k, dim=1))  # list of (B, C', H, W)
+        kv = []
+
+        for r in ref_list:
+            if isinstance(block_ref, UNetBlock):
+                r_out = block_ref(r, emb=emb) if emb is not None else block_ref(r)
             else:
-                k_i = block_ref_hist(r_hist)
-                # print(f"hi else {k_i}")
-            k_list.append(k_i)
-        
-        # Xử lý từng ref_future để tạo V_i  
-        v_list = []
-        for r_future in ref_future_list:
-            if isinstance(block_ref_future, UNetBlock):
-                v_i = block_ref_future(r_future, emb=emb) if emb is not None else block_ref_future(r_future)
-            else:
-                v_i = block_ref_future(r_future)
-            v_list.append(v_i)
-        
+                r_out = block_ref(r)
+            kv.append(r_out)
+        kv = torch.cat(kv, dim=1)  # (B, top_k * C_new, H, W)
+        k = self.k_proj(kv) # ([32, 64, 16, 16])
+        v = self.v_proj(kv) # ([32, 64, 16, 16])
         def prepare(t):
             return t.reshape(B, self.num_heads, self.head_dim, H, W) \
                     .flatten(3) \
                     .permute(0, 1, 3, 2) \
                     .reshape(B * self.num_heads, H * W, self.head_dim)
 
-        q = prepare(q) 
-        
-        # Tính attention với từng K_i riêng biệt
-        attention_scores = []
-        for k_i in k_list:
-            k_i = prepare(k_i)
-            score_i = torch.bmm(q, k_i.transpose(1, 2)) / (self.head_dim ** 0.5)
-            attention_scores.append(score_i)  #(128,256,256) mỗi cái i
-            
-    
-        # Softmax across all refs
-        all_scores = torch.stack(attention_scores, dim=1)  # (B*heads, top_k, HW, HW)   (128,3,256,256)
-        attention_weights = F.softmax(all_scores, dim=1)  # Softmax theo dimension top_k  (128,3,256,256)
-        # Attn map
-        # self.visualize_attention_map(attention_weights, H, W, batch_size=B, block_idx=block_idx, epoch=epoch, num_epochs=num_epochs)
+        q = prepare(q)
+        k = prepare(k)
+        v = prepare(v)
 
-        # Weighted sum với từng V_i
-        output = torch.zeros_like(q) 
-        for i, v_i in enumerate(v_list):
-            v_i = prepare(v_i) #(128, 256, 4)
-            weighted_v_i = torch.bmm(attention_weights[:, i, :, :], v_i) #(128,256,256) x (128,256,4)
-            output += weighted_v_i
-        
-        out = output.reshape(B, self.num_heads, H * W, self.head_dim) \
-                    .permute(0, 1, 3, 2) \
-                    .reshape(B, C, H, W) # (32, 64, 16, 16)
-        
-        # Return updated refs
-        updated_hist = torch.cat(k_list, dim=1)  # (32, 192, 16, 16)
-        updated_future = torch.cat(v_list, dim=1) 
-        # print(f"day la updated_hist {updated_hist.shape} ")
-        return out, updated_hist, updated_future
+        attn = torch.bmm(q, k.transpose(1, 2)) / (self.head_dim ** 0.5)
+        attn = F.softmax(attn, dim=-1)
 
+        out = torch.bmm(attn, v)  # (B*num_heads, HW, head_dim)
+        out = out.reshape(B, self.num_heads, H * W, self.head_dim) \
+                .permute(0, 1, 3, 2) \
+                .reshape(B, C, H, W)
+        print(f"ĐÂY LÀ KV {kv.shape}")
+        return out, kv
 #----------------------------------------------------------------------------
 # Reimplementation of the ADM architecture from the paper
 # "Diffusion Models Beat GANS on Image Synthesis". Equivalent to the
@@ -387,39 +353,28 @@ class DhariwalUNet(torch.nn.Module):
 
         # Encoder.
         self.enc = torch.nn.ModuleDict()
-        # self.enc_ref = torch.nn.ModuleDict()
-        self.enc_ref_hist = torch.nn.ModuleDict()
-        self.enc_ref_future = torch.nn.ModuleDict()
+        self.enc_ref = torch.nn.ModuleDict()
         self.enc_cross_attn = torch.nn.ModuleDict()
         cout = in_channels
-        # print("========")
-        # print(channel_mult)
         for level, mult in enumerate(channel_mult):
-
             res = img_resolution >> level
             if level == 0:
                 cin = cout
                 cout = model_channels * mult
                 self.enc[f'{res}x{res}_conv'] = Conv2d(in_channels=cin, out_channels=cout, kernel=3, **init)
-                # self.enc_ref[f'{res}x{res}_conv'] = Conv2d(in_channels=cin, out_channels=cout, kernel=3, **init)
-                self.enc_ref_hist[f'{res}x{res}_conv'] = Conv2d(in_channels=cin, out_channels=cout, kernel=3, **init)
-                self.enc_ref_future[f'{res}x{res}_conv'] = Conv2d(in_channels=cin, out_channels=cout, kernel=3, **init)
+                self.enc_ref[f'{res}x{res}_conv'] = Conv2d(in_channels=cin, out_channels=cout, kernel=3, **init)
                 self.enc_cross_attn[f'{res}x{res}_conv'] = CrossAttentionBlock(in_channels=cout, out_channels=cout, num_heads=4, top_k = self.top_k)
             
             else:
                 self.enc[f'{res}x{res}_down'] = UNetBlock(in_channels=cout, out_channels=cout, down=True, **block_kwargs)
-                # self.enc_ref[f'{res}x{res}_down'] = UNetBlock(in_channels=cout, out_channels=cout, down=True, **block_kwargs)
-                self.enc_ref_hist[f'{res}x{res}_down'] = UNetBlock(in_channels=cout, out_channels=cout, down=True, **block_kwargs)
-                self.enc_ref_future[f'{res}x{res}_down'] = UNetBlock(in_channels=cout, out_channels=cout, down=True, **block_kwargs)
+                self.enc_ref[f'{res}x{res}_down'] = UNetBlock(in_channels=cout, out_channels=cout, down=True, **block_kwargs)
                 self.enc_cross_attn[f'{res}x{res}_down'] = CrossAttentionBlock(in_channels=cout, out_channels=cout, num_heads=4, top_k = self.top_k)
             
             for idx in range(num_blocks):
                 cin = cout
                 cout = model_channels * mult
                 self.enc[f'{res}x{res}_block{idx}'] = UNetBlock(in_channels=cin, out_channels=cout, attention=(res in attn_resolutions), **block_kwargs)
-                # self.enc_ref[f'{res}x{res}_block{idx}'] = UNetBlock(in_channels=cin, out_channels=cout, attention=(res in attn_resolutions), **block_kwargs)
-                self.enc_ref_hist[f'{res}x{res}_block{idx}'] = UNetBlock(in_channels=cin, out_channels=cout, attention=(res in attn_resolutions), **block_kwargs)
-                self.enc_ref_future[f'{res}x{res}_block{idx}'] = UNetBlock(in_channels=cin, out_channels=cout, attention=(res in attn_resolutions), **block_kwargs)
+                self.enc_ref[f'{res}x{res}_block{idx}'] = UNetBlock(in_channels=cin, out_channels=cout, attention=(res in attn_resolutions), **block_kwargs)
                 self.enc_cross_attn[f'{res}x{res}_block{idx}'] = CrossAttentionBlock(in_channels=cout, out_channels=cout, num_heads=4, top_k = self.top_k)
                 
         
@@ -427,9 +382,7 @@ class DhariwalUNet(torch.nn.Module):
 
         # Decoder.
         self.dec = torch.nn.ModuleDict()
-        # self.dec_ref = torch.nn.ModuleDict()
-        self.dec_ref_hist = torch.nn.ModuleDict()
-        self.dec_ref_future = torch.nn.ModuleDict()
+        self.dec_ref = torch.nn.ModuleDict()
         self.dec_cross_attn = torch.nn.ModuleDict()
         for level, mult in reversed(list(enumerate(channel_mult))):
             res = img_resolution >> level
@@ -437,32 +390,23 @@ class DhariwalUNet(torch.nn.Module):
             #print(f"level: {level}, res: {res}, channel_mult: {channel_mult}")
             if level == len(channel_mult) - 1:
                 self.dec[f'{res}x{res}_in0'] = UNetBlock(in_channels=cout, out_channels=cout, attention=True, **block_kwargs)
-                # self.dec_ref[f'{res}x{res}_in0'] = UNetBlock(in_channels=cout, out_channels=cout, attention=True, **block_kwargs)
-                self.dec_ref_hist[f'{res}x{res}_in0'] = UNetBlock(in_channels=cout, out_channels=cout, attention=True, **block_kwargs)
-                self.dec_ref_future[f'{res}x{res}_in0'] = UNetBlock(in_channels=cout, out_channels=cout, attention=True, **block_kwargs)
+                self.dec_ref[f'{res}x{res}_in0'] = UNetBlock(in_channels=cout, out_channels=cout, attention=True, **block_kwargs)
                 self.dec_cross_attn[f'{res}x{res}_in0'] = CrossAttentionBlock(in_channels=cout, out_channels=cout, num_heads=4, top_k = self.top_k)
                 
                 self.dec[f'{res}x{res}_in1'] = UNetBlock(in_channels=cout, out_channels=cout, **block_kwargs)
-                # self.dec_ref[f'{res}x{res}_in1'] = UNetBlock(in_channels=cout, out_channels=cout, **block_kwargs)
-                self.dec_ref_hist[f'{res}x{res}_in1'] = UNetBlock(in_channels=cout, out_channels=cout, **block_kwargs)
-                self.dec_ref_future[f'{res}x{res}_in1'] = UNetBlock(in_channels=cout, out_channels=cout, **block_kwargs)
+                self.dec_ref[f'{res}x{res}_in1'] = UNetBlock(in_channels=cout, out_channels=cout, **block_kwargs)
                 self.dec_cross_attn[f'{res}x{res}_in1'] = CrossAttentionBlock(in_channels=cout, out_channels=cout, num_heads=4, top_k = self.top_k)
                 
             else:
                 self.dec[f'{res}x{res}_up'] = UNetBlock(in_channels=cout, out_channels=cout, up=True, **block_kwargs)
-                # self.dec_ref[f'{res}x{res}_up'] = UNetBlock(in_channels=cout, out_channels=cout, up=True, **block_kwargs)
-                self.dec_ref_hist[f'{res}x{res}_up'] = UNetBlock(in_channels=cout, out_channels=cout, up=True, **block_kwargs)
-                self.dec_ref_future[f'{res}x{res}_up'] = UNetBlock(in_channels=cout, out_channels=cout, up=True, **block_kwargs)
+                self.dec_ref[f'{res}x{res}_up'] = UNetBlock(in_channels=cout, out_channels=cout, up=True, **block_kwargs)
                 self.dec_cross_attn[f'{res}x{res}_up'] = CrossAttentionBlock(in_channels=cout, out_channels=cout, num_heads=4, top_k = self.top_k)
                 
             for idx in range(num_blocks + 1):
                 cin = cout + skips_x.pop()
                 cout = model_channels * mult
                 self.dec[f'{res}x{res}_block{idx}'] = UNetBlock(in_channels=cin, out_channels=cout, attention=(res in attn_resolutions), **block_kwargs)
-                # self.dec_ref[f'{res}x{res}_block{idx}'] = UNetBlock(in_channels=cin, out_channels=cout, attention=(res in attn_resolutions), **block_kwargs)
-                self.dec_ref_hist[f'{res}x{res}_block{idx}'] = UNetBlock(in_channels=cin, out_channels=cout, attention=(res in attn_resolutions), **block_kwargs)
-                self.dec_ref_future[f'{res}x{res}_block{idx}'] = UNetBlock(in_channels=cin, out_channels=cout, attention=(res in attn_resolutions), **block_kwargs)
-
+                self.dec_ref[f'{res}x{res}_block{idx}'] = UNetBlock(in_channels=cin, out_channels=cout, attention=(res in attn_resolutions), **block_kwargs)
                 self.dec_cross_attn[f'{res}x{res}_block{idx}'] = CrossAttentionBlock(in_channels=cout, out_channels=cout, num_heads=4, top_k = self.top_k)
                 
         self.out_norm = GroupNorm(num_channels=cout)
@@ -470,7 +414,7 @@ class DhariwalUNet(torch.nn.Module):
 
         
 
-    def forward(self, x, ref_hist,ref_future, top_k, noise_labels, class_labels, augment_labels=None, epoch=0, num_epochs=20):
+    def forward(self, x, ref, top_k, noise_labels, class_labels, augment_labels=None, epoch=0, num_epochs=10):
         # Mapping.
         # print(f"DhariwalUNet - Epoch: {epoch}, Num_epochs: {num_epochs}")
         emb = self.map_noise(noise_labels)
@@ -487,19 +431,10 @@ class DhariwalUNet(torch.nn.Module):
 
         # Encoder.
         skips = []
-        # skips_ref = [] 
-        skips_ref_hist = []
-        skips_ref_future = []
-        # print(f"Shape of x before Unet: {x.shape}")
-        # print(x)
-        # x = x*mask or x*(1-mask)
+        skips_ref = []
         for key in self.enc.keys():
             block = self.enc[key]
-            # print(f"hell {x.shape}")
-        
-            # block_ref = self.enc_ref[key]
-            block_ref_hist = self.enc_ref_hist[key]
-            block_ref_future = self.enc_ref_future[key]
+            block_ref = self.enc_ref[key]
             block_cross = self.enc_cross_attn[key]
 
             if isinstance(block, UNetBlock):
@@ -508,35 +443,42 @@ class DhariwalUNet(torch.nn.Module):
                 x = block(x)
 
             x_skip = x.clone()
-            # x, ref = block_cross(x, ref, top_k=top_k, block=block, block_ref=block_ref, emb=emb, block_idx=key, epoch=epoch, num_epochs=num_epochs)
-            x, ref_hist, ref_future = block_cross(x, ref_hist, ref_future, top_k=top_k, block=block, 
-                                     block_ref_hist=block_ref_hist, block_ref_future=block_ref_future, 
-                                     emb=emb, block_idx=key, epoch=epoch, num_epochs=num_epochs)
+            x, ref = block_cross(x, ref, top_k=top_k, block=block, block_ref=block_ref, emb=emb, block_idx=key, epoch=epoch, num_epochs=num_epochs)
             # x, ref = block_cross(x, ref, top_k=top_k, block=block, emb=emb, block_idx=key, epoch=epoch, num_epochs=num_epochs)
             C = x.shape[1]
             add_norm = AddGroupNorm(num_channels=C).to(x.device)
             x = add_norm(x, x_skip)
             skips.append(x)
-            # skips_ref.append(ref)
-            skips_ref_hist.append(ref_hist)
-            skips_ref_future.append(ref_future)
-            # print(f"[DEBUG] After block {key}: x.shape = {x.shape}")
-            # print(f"[DEBUG] After block {key}: ref_hist.shape = {ref_hist.shape}")
-            # print(f"[DEBUG] After block {key}: ref_future.shape = {ref_future.shape}")
+            skips_ref.append(ref)
+            print(f"[DEBUG] After block {key}: x.shape = {x.shape}")
+            print(f"[DEBUG] After block {key}: ref.shape = {ref.shape}")
 
         # Decoder.
         for key in self.dec.keys():
             block = self.dec[key]
-            # block_ref = self.dec_ref[key] 
-            block_ref_hist = self.dec_ref_hist[key]
-            block_ref_future = self.dec_ref_future[key]
+            block_ref = self.dec_ref[key]
             block_cross = self.dec_cross_attn[key]
 
             if x.shape[1] != block.in_channels:
                 #print(f"Shape of x before attention: {x.shape}")
                 x = torch.cat([x, skips.pop()], dim=1)
+                #print(f"Shape of x before attention: {x.shape}")
+
+                # ref_list = torch.chunk(ref, chunks=top_k, dim=1)
+                # kv = []
+                # skip = skips_ref.pop()
+                # skip_list = torch.chunk(skip, chunks=top_k, dim=1)
+                
+                # kv = []
+                # for r, s in zip(ref_list, skip_list):
+                #     r = torch.cat([r, s], dim=1)
+                #     kv.append(r)
+
+                # ref = torch.cat(kv, dim=1)
 
             x = block(x, emb)
+            #ref = block_ref(ref, emb)
+            #x, ref = block_cross(x, ref, top_k=top_k, block=block, block_ref=block_ref, emb=None)
 
         #     print(f"Shape of x after attention: {x.shape}")
         x = self.out_conv(silu(self.out_norm(x)))
@@ -571,10 +513,9 @@ class EDMPrecond(torch.nn.Module):
         self.sigma_data = sigma_data
         self.model = globals()[model_type](img_resolution=img_resolution, in_channels=img_channels, out_channels=img_channels, top_k = top_k, label_dim=label_dim, **model_kwargs)
 
-    def forward(self, x, sigma, ref_hist,ref_future, top_k, class_labels=None, force_fp32=False, epoch=0, num_epochs=20, **model_kwargs):
+    def forward(self, x, sigma, ref, top_k, class_labels=None, force_fp32=False, epoch=0, num_epochs=10, **model_kwargs):
         # print(f"EDMPrecond - Epoch: {epoch}, Num_epochs: {num_epochs}")
-        x = x.to(torch.float32) # his + fut noise  (32, 1, 16, 16) 
-        # print(f"Shape of x networks: {x.shape}") 
+        x = x.to(torch.float32)
         sigma = sigma.to(torch.float32).reshape(-1, 1, 1, 1)
         class_labels = None if self.label_dim == 0 else torch.zeros([1, self.label_dim], device=x.device) if class_labels is None else class_labels.to(torch.float32).reshape(-1, self.label_dim)
         dtype = torch.float16 if (self.use_fp16 and not force_fp32 and x.device.type == 'cuda') else torch.float32
@@ -584,7 +525,7 @@ class EDMPrecond(torch.nn.Module):
         c_in = 1 / (self.sigma_data ** 2 + sigma ** 2).sqrt()
         c_noise = sigma.log() / 4
 
-        F_x = self.model((c_in * x).to(dtype), ref_hist,ref_future, top_k, c_noise.flatten(), class_labels=class_labels, epoch=epoch, num_epochs=num_epochs, **model_kwargs)
+        F_x = self.model((c_in * x).to(dtype), ref, top_k, c_noise.flatten(), class_labels=class_labels, epoch=epoch, num_epochs=num_epochs, **model_kwargs)
         assert F_x.dtype == dtype
         D_x = c_skip * x + c_out * F_x.to(torch.float32)
         return D_x

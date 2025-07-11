@@ -10,8 +10,8 @@ import logging
 import torch.nn.functional as F
 from utils.tools import EarlyStopping
 from utils.loggers import NeptuneLogger, PrintLogger, CompositeLogger
-from models.model import ImagenTime
-from models.sampler import DiffusionProcess
+from models.model_old import ImagenTime
+from models.sampler_old import DiffusionProcess
 from utils.utils import save_checkpoint, restore_state, create_model_name_and_dir, print_model_params, \
     log_config_and_tags, get_x_and_mask
 from utils.utils_data import gen_dataloader
@@ -45,6 +45,10 @@ def main(args):
         train_loader, test_loader = gen_dataloader(args)
         
         print(f"Train loader length: {len(train_loader)}, Test loader length: {len(test_loader)}")
+        #reference = args.reference if args.reference else None
+        #ref = torch.load(reference)
+        #print(f"Shape of ref: {ref.shape}")  # (batch_size, seq_len, top_k)
+
 
         logging.info(args.dataset + ' dataset is ready.')
         
@@ -72,11 +76,17 @@ def main(args):
                         
                         reference = f"/home/user11/binhnkt/ImagenTime_New_flow_3_Backup/ENCODE_IMAGE_UNET/{local_args.run_type}/{local_args.model_name}/{local_args.symbols}/{local_args.convert_method}/{local_args.seq_len}/{local_args.top_k}_{local_args.step_size}.pt"
                         ref = torch.load(reference)
-                        # print(f"Shape of ref: {ref.shape}")
+                        print(f"Shape of ref: {ref.shape}")
 
                         
                         model = ImagenTime(args=local_args, device=local_args.device).to(local_args.device)
 
+                        
+
+
+                        # log model name and parameters
+                    
+            
                         # model = ImagenTime(args=args, device=args.device).to(args.device)
 
                         # optimizer
@@ -89,6 +99,9 @@ def main(args):
                         if args.resume:
                             ema_model = model.model_ema if args.ema else None # load ema model if available
                             init_epoch = restore_state(args, state, ema_model=ema_model)
+
+                        # print model parameters
+                        #print_model_params(logger, model)
 
                         # --- train model ---
                         logging.info(f"Continuing training loop from epoch {init_epoch}.")
@@ -111,56 +124,40 @@ def main(args):
                                 #     break
                                 batch = len(data[0])  # because last batch can not enough samples (!= batch size)
                                 
-                                mask_ts, x_ts = get_x_and_mask(args, data) 
+                                mask_ts, x_ts = get_x_and_mask(args, data)
+
                                 x_ref = torch.zeros((batch, args.seq_len, args.top_k), device=args.device)
-                                # print(f"x_ref {x_ref}") #(32,40,3)
                                 for u in range(batch):
                                     for v in range(args.top_k):
-
+                                        #print(i * args.batch_size * args.seq_len * args.top_k + u * args.seq_len * args.top_k + v * args.seq_len)
+                                        
+                                        #print(i * args.batch_size * args.seq_len * args.seq_len * args.top_k + u * args.seq_len * args.seq_len * args.top_k + (v + 1) * args.seq_len)
                                         x_ref[u, :, v] = ref[total_samples * args.seq_len * args.top_k + u * args.seq_len * args.top_k + v * args.seq_len :  total_samples * args.seq_len * args.top_k + u * args.seq_len * args.top_k + (v + 1) * args.seq_len].to(args.device)
-                                batch, seq_len, top_k = x_ref.shape    # #([32, 40, 3])
-                                half = seq_len // 2
-# 2. x_hist/fut kích thước /2
-                                x_hist = x_ref[:, :half, :]   #([32, 20, 3])
-                                x_future = x_ref[:, half:, :] 
-                                # print(f" x_hist shape {x_hist.shape} {x_hist}") 
-                                # 40 
-                                # x_hist = x_ref
-                                # x_future = x_ref
-
+                                #x_ref = ref[args.batch_size * args.seq_len * args.top_k * args.seq_len * i : args.batch_size * args.seq_len * args.top_k *(args.seq_len * i+1)].to(args.device).view(args.batch_size, args.seq_len, args.top_k)
+                                #x_ref = ref[ 0 : args.batch_size * args.seq_len * args.top_k].to(args.device).view(args.batch_size, args.seq_len, args.top_k)
+                                #x_ref = x_ref.repeat(1, 2, 1)  #(32, 40, 2)
+                                #print(f"Shape of x_ref: {x_ref.shape}")
+                                #print(x_ref[:, :, 0].shape)
                                 total_samples += batch
                                 sample_img = model.ts_to_img(x_ref[:, :, 0])  # shape: (batch_size, C, H, W)
                                 #print(f"Shape of sample_img: {sample_img.shape}")
                                 B, C, H, W = sample_img.shape # B = batch size, C = features, H = height, W = width
-
-                                # x_ref_ts_img = torch.zeros((batch, args.top_k, H, W), device=args.device)
-                                x_ref_hist_img = torch.zeros((batch, args.top_k, H, W), device=args.device)
-                                x_ref_future_img = torch.zeros((batch, args.top_k, H, W), device=args.device)
+                                x_ref_ts_img = torch.zeros((batch, args.top_k, H, W), device=args.device)
 
                                 # Gán từng ảnh transform vào
                                 for j in range(args.top_k):
-                                    # x_ref_ts_img[:, j] = model.ts_to_img(x_ref[:, :, j]).squeeze(1)  
-                                    x_ref_hist_img[:, j] = model.ts_to_img(x_hist[:, :, j]).squeeze(1)  #([32, 3, 16, 16]) 
-                                    x_ref_future_img[:, j] = model.ts_to_img(x_future[:, :, j]).squeeze(1) 
-                                # print(f"Shape of x_ref_hist_img: {x_ref_hist_img.shape}")   
-                                # torch.set_printoptions(threshold=torch.inf, linewidth=200)
-                                # print(f"x_ref_hist_img: {x_ref_hist_img}")
-                                # print(f"Shape of x_ref_future_img: {x_ref_future_img.shape}")
-                                # torch.set_printoptions(threshold=torch.inf, linewidth=200)
-                                # print(f"x_ref_future_img: {x_ref_future_img}")
+                                    x_ref_ts_img[:, j] = model.ts_to_img(x_ref[:, :, j]).squeeze(1)
+                                #print(f"Shape of x_ref_ts_img: {x_ref_ts_img.shape}")
 
                                 # transform to image
-                                x_ts_img = model.ts_to_img(x_ts)     
-                                torch.set_printoptions(threshold=float('inf'), precision=3, linewidth=200)
-                                # print(f"x_ts {x_ts_img.shape} ")
+                                x_ts_img = model.ts_to_img(x_ts)
                                 # pad mask with 1
                                 mask_ts_img = model.ts_to_img(mask_ts,pad_val=1)
                                 optimizer.zero_grad()
                                 # Shape of x_ts_img: {x_ts_img.shape}, mask_ts_img: {mask_ts_img.shape}"
                                 #logger.log_shape(f'train/shape/x_ts_img', x_ts_img.shape)
                                 #logger.log_shape(f'train/shape/mask_ts_img', mask_ts_img.shape)    
-                                # loss = model.loss_fn_impute(x_ts_img, mask_ts_img, ref = x_ref_ts_img, top_k=args.top_k,epoch=epoch, num_epochs=args.epochs)
-                                loss = model.loss_fn_impute(x_ts_img, mask_ts_img, ref_hist = x_ref_hist_img, ref_future = x_ref_future_img, top_k=args.top_k,epoch=epoch, num_epochs=args.epochs)
+                                loss = model.loss_fn_impute(x_ts_img, mask_ts_img, ref = x_ref_ts_img, top_k=args.top_k,epoch=epoch, num_epochs=args.epochs)
                                 
                                 if len(loss) == 2:
                                     loss, to_log = loss
@@ -200,6 +197,10 @@ def main(args):
 
                                         mask_ts, x_ts = get_x_and_mask(args, data)
 
+                                        # transform to image
+                                        # x_ref = ref[ 0 : args.batch_size * args.seq_len // 2 * args.top_k].to(args.device).view(args.batch_size, args.seq_len//2, args.top_k)
+                                        # x_ref = x_ref.repeat(1, 2, 1)  #(32, 40, 2)
+                                        
                                         x_ref = torch.zeros((batch, args.seq_len, args.top_k), device=args.device)
                                         for u in range(batch):
                                             for v in range(args.top_k):
@@ -210,49 +211,36 @@ def main(args):
                                                 #print(i * args.batch_size * args.seq_len * args.seq_len * args.top_k + u * args.seq_len * args.seq_len * args.top_k + (v + 1) * args.seq_len)
                                                 # add normalize
                                                 x_ref[u, :, v] = ref[total_samples * args.seq_len * args.top_k + u * args.seq_len * args.top_k + v * args.seq_len :  total_samples * args.seq_len * args.top_k + u * args.seq_len * args.top_k + (v + 1) * args.seq_len].to(args.device)
-                                        batch, seq_len, top_k = x_ref.shape  # 32,40,3
-                                        half = seq_len // 2
+                                                # raw_values = ref[
+                                                #     ((idx + j) * args.batch_size + 21) * args.seq_len * args.top_k + u * args.seq_len * args.top_k + v * args.seq_len :
+                                                #     ((idx + j) * args.batch_size + 21) * args.seq_len * args.top_k + u * args.seq_len * args.top_k + (v + 1) * args.seq_len
+                                                # ].to(args.device)
 
-                                        # # Tạo tensor toàn 0 cùng shape
-                                        # x_hist = torch.zeros_like(x_ref)
-                                        # x_future = torch.zeros_like(x_ref)
-                                        # # Gán nửa đầu cho x_hist
-                                        # x_hist[:, :half, :] = x_ref[:, :half, :]
-                                        # # Gán nửa sau cho x_future
-                                        # x_future[:, :seq_len - half, :] = x_ref[:, half:, :]
-                                        # x_hist = x_ref[:, :half, :]
-                                        # x_future = x_ref[:, half:, :] 
+                                                # min_val = raw_values.min()
+                                                # max_val = raw_values.max()
+                                                # normalized_values = (raw_values - min_val) / (max_val - min_val + 1e-8) 
 
-#20 20 
-                                        x_hist = x_ref[:, :half, :]    #([32, 20, 3])
-                                        x_future = x_ref[:, half:, :] 
-#40 40 
-                                        # x_hist = x_ref    #([32, 20, 3])
-                                        # x_future = x_ref
-
+                                                # x_ref[u, :, v] = normalized_values
+                                        
+                                        #print(f"Shape of x_ref: {x_ref.shape}")
+                                        #print(x_ref[:, :, 0].shape)
                                         total_samples += batch
                                         sample_img = model.ts_to_img(x_ref[:, :, 0])  # shape: (batch_size, C, H, W)
                                         #print(f"Shape of sample_img: {sample_img.shape}")
                                         B, C, H, W = sample_img.shape # B = batch size, C = features, H = height, W = width
-                                        # x_ref_ts_img = torch.zeros((batch, args.top_k, H, W), device=args.device)
-                                        x_ref_hist_img = torch.zeros((batch, args.top_k, H, W), device=args.device)
-                                        x_ref_future_img = torch.zeros((batch, args.top_k, H, W), device=args.device)
+                                        x_ref_ts_img = torch.zeros((batch, args.top_k, H, W), device=args.device)
 
                                         # Gán từng ảnh transform vào
                                         for i in range(args.top_k):
-                                            # x_ref_ts_img[:, i] = model.ts_to_img(x_ref[:, :, i]).squeeze(1)
-                                            # print(f"Shape của x_hist bên trong test loader: {x_hist.shape}")
-                                            x_ref_hist_img[:, i] = model.ts_to_img(x_hist[:, :, i]).squeeze(1) 
-                                            x_ref_future_img[:, i] = model.ts_to_img(x_future[:, :, i]).squeeze(1) 
+                                            x_ref_ts_img[:, i] = model.ts_to_img(x_ref[:, :, i]).squeeze(1)
                                         #print(f"Shape of x_ref_ts_img: {x_ref_ts_img.shape}")
                                         x_ts_img = model.ts_to_img(x_ts)
                                         mask_ts_img = model.ts_to_img(mask_ts, pad_val=1)
 
                                         # sample from the model
                                         # and impute, both interpolation and extrapolation are similar just the mask is different
-                                        # x_img_sampled = process.interpolate(x_ts_img, mask_ts_img, ref=x_ref_ts_img).to(x_ts_img.device)
-
-                                        x_img_sampled = process.interpolate(x_ts_img, mask_ts_img, ref_hist = x_ref_hist_img,ref_future = x_ref_future_img).to(x_ts_img.device)
+                                    
+                                        x_img_sampled = process.interpolate(x_ts_img, mask_ts_img, ref = x_ref_ts_img).to(x_ts_img.device)
                                         x_ts_sampled = model.img_to_ts(x_img_sampled)
 
                                         # task evaluation
@@ -336,7 +324,11 @@ def main(args):
                         #     writer.writerow(['seed', 'Symbol', 'Database', 'CLIP model', 'ts2img (retrieval)', 'ts2img( Unet flow)', 'history len', 'pred len', 'top k', 'step size', 'batch size', 'epochs', 'Best_MSE', 'Best_MAE'])
                         #     writer.writerow([local_args.seed, local_args.symbols, local_args.run_type, local_args.model_name, local_args.convert_method, 'Delay embedding', local_args.seq_len //2, local_args.seq_len // 2, local_args.top_k, local_args.step_size, 32, local_args.epochs, best_score_mse, best_score_mae])
                 
+                        
+            
     logging.info("Training is complete")
+
+
 if __name__ == '__main__':
     args = parse_args_cond()  # parse unconditional generation specific args
     torch.random.manual_seed(args.seed)

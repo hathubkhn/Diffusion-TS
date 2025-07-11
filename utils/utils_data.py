@@ -5,9 +5,11 @@ import pandas as pd
 import sys
 import torch
 import torch.utils.data as Data
+from sklearn.preprocessing import MinMaxScaler as Ori_MinMaxScaler
+from torch.utils.data import DataLoader, TensorDataset
 
 from data.data_provider.data_factory import data_provider
-from data.long_range import parse_datasets
+# from data.long_range import parse_datasets 
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -113,7 +115,7 @@ def real_data_loading(data_name, seq_len):
     # Flip the data to make chronological data
     ori_data = ori_data[::-1]
     # Normalize the data
-    ori_data = MinMaxScaler(ori_data)
+    #ori_data = MinMaxScaler(ori_data)
 
     # Preprocess the data
     temp_data = []
@@ -145,21 +147,38 @@ def gen_dataloader(args):
         
         ori_data = torch.Tensor(np.array(ori_data))  # [N, seq_len, features] hoặc tương đương
 
-        # Bước 2: Tách dữ liệu thành train/test (ví dụ: 80% train, 20% test)
         train_ratio = 0.7
         train_size = int(len(ori_data) * train_ratio)
         test_size = len(ori_data) - train_size
 
         train_data = ori_data[:train_size]
         test_data = ori_data[train_size:]
-        train_set = Data.TensorDataset(train_data)
-        test_set = Data.TensorDataset(test_data)
+        # train_set = Data.TensorDataset(train_data)
+        # test_set = Data.TensorDataset(test_data)
+
+        N_train, seq_len = train_data.shape
+        N_test = test_data.shape[0]
+        n_features = 1
+
+        train_reshaped = train_data.reshape(-1, n_features).numpy()
+        test_reshaped = test_data.reshape(-1, n_features).numpy()
+
+        scaler = Ori_MinMaxScaler()
+        train_scaled = scaler.fit_transform(train_data.numpy())     # [N_train, seq_len]
+        test_scaled = scaler.transform(test_data.numpy())           # [N_test, seq_len]
+        # back to tensor
+        train_scaled = torch.tensor(train_scaled, dtype=torch.float32)
+        test_scaled = torch.tensor(test_scaled, dtype=torch.float32)
+        # create TensorDataset and DataLoader
+        train_set = Data.TensorDataset(train_scaled)
+        test_set = Data.TensorDataset(test_scaled)
 
         train_loader = Data.DataLoader(dataset=train_set, batch_size=args.batch_size, shuffle=True,
-                                num_workers=args.num_workers, drop_last=True)
+                                num_workers=args.num_workers, drop_last=False)
 
         test_loader = Data.DataLoader(dataset=test_set, batch_size=args.batch_size, shuffle=False,
                                 num_workers=args.num_workers, drop_last=False)
+        
 
         return train_loader, test_loader
 
@@ -174,8 +193,8 @@ def gen_dataloader(args):
         args.seq_len = ori_data.shape[1]  # update seq_len to match the dataset
         full_len = ori_data.shape[0]
         randperm = torch.randperm(full_len)
-        train_data = ori_data[randperm[:int(full_len * 0.8)]]
-        test_data = ori_data[randperm[int(full_len * 0.8):]]
+        train_data = ori_data[randperm[:int(full_len * 0.7)]]
+        test_data = ori_data[randperm[int(full_len * 0.7):]]
         train_set = Data.TensorDataset(train_data)
         test_set = Data.TensorDataset(test_data)
         train_loader = Data.DataLoader(dataset=train_set, batch_size=args.batch_size, shuffle=True,

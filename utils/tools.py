@@ -2,7 +2,7 @@ import numpy as np
 import torch
 
 class EarlyStopping:
-    def __init__(self, patience=50, verbose=False, delta=0):
+    def __init__(self, patience=20, verbose=False, delta=0):
         self.patience = patience
         self.verbose = verbose
         self.counter = 0
@@ -17,7 +17,7 @@ class EarlyStopping:
             self.best_score = score
             self.save_checkpoint(val_loss, model, path)
         elif score < self.best_score + self.delta:
-            self.counter += 5
+            self.counter += 1
             print(f'EarlyStopping counter: {self.counter} out of {self.patience}')
             if self.counter >= self.patience:
                 self.early_stop = True
