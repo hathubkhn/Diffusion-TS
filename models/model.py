@@ -100,7 +100,10 @@ class ImagenTime(nn.Module):
 
         to_log = {} 
         # output, weight = self.forward_impute(x, mask, ref_hist,ref_future, top_k, epoch=epoch, num_epochs=num_epochs)        
-
+        torch.set_printoptions(threshold=torch.inf, linewidth=200)
+        # print(x.shape) [32, 1, 16, 16])
+        # print(mask.shape) [32, 1, 16, 16])
+        # print(ref_hist.shape) ([32, 3, 16, 16])
         output, weight = self.forward_impute(x, mask, ref_hist,ref_future, top_k, epoch=epoch, num_epochs=num_epochs)        
         x = self.unpad(x * (1 - mask), x.shape)
         output = self.unpad(output * (1 - mask), x.shape)
@@ -210,3 +213,4 @@ class ImagenTime(nn.Module):
         """
         if self.use_ema:
             self.model_ema(self.net)
+            

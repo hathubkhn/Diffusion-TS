@@ -71,7 +71,7 @@ class DelayEmbedder(TsImgEmbedder):
         return x[:, :, :original_cols, :original_rows]
 
     def ts_to_img(self, signal, pad=True, mask=0):
-        #print(f"signal shape: {signal.shape}")
+        # print(f"signal shape: {signal.shape}")
         signal = signal.unsqueeze(1)
         batch, features, length = signal.shape
         # print("shape of signal:", signal.shape)

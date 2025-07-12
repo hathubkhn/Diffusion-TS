@@ -267,22 +267,25 @@ class CrossAttentionBlock(nn.Module):
         super().__init__()
         self.num_heads = num_heads
         self.top_k = top_k
+        self.head_dim = out_channels // num_heads
         assert out_channels % num_heads == 0
 
         self.q_proj = nn.Conv2d(in_channels, out_channels, kernel_size=1)
-        self.k_proj = nn.Conv2d(top_k * out_channels, in_channels, kernel_size=1)
-        self.v_proj = nn.Conv2d(top_k * out_channels, in_channels, kernel_size=1)
+        # self.k_proj = nn.Conv2d(top_k * out_channels, in_channels, kernel_size=1)
+        # self.v_proj = nn.Conv2d(top_k * out_channels, in_channels, kernel_size=1)
+        self.k_proj = nn.Conv2d(out_channels, out_channels, kernel_size=1)
+        self.v_proj = nn.Conv2d(out_channels, out_channels, kernel_size=1)
     def forward(self, x, ref_hist, ref_future, top_k, block, block_ref_hist, block_ref_future, emb=None, block_idx='unknown', epoch=0, num_epochs=20):
         # print("x trong forward cross ")
 
         B, C, H, W = x.shape
-        self.head_dim = C // self.num_heads
+        # self.head_dim = C // self.num_heads
         torch.set_printoptions(threshold=float('inf'), precision=3, linewidth=200)
         q = self.q_proj(x)  # (B, C, H, W) (32,64,16,16)
 
         # print(f"Đây là q {q}")
         # Tách từng ref riêng biệt
-        # print(f"đây là shape {ref_hist.shape} {ref_hist} ") #(32,3,16,16)
+        print(f"đây là shape {ref_hist.shape} {ref_hist} ") #(32,3,16,16)
         ref_hist_list = list(torch.chunk(ref_hist, chunks=self.top_k, dim=1)) #(32,1,16,16)
         ref_future_list = list(torch.chunk(ref_future, chunks=self.top_k, dim=1))
         
@@ -291,9 +294,11 @@ class CrossAttentionBlock(nn.Module):
         for r_hist in ref_hist_list:
             if isinstance(block_ref_hist, UNetBlock):
                 k_i = block_ref_hist(r_hist, emb=emb) if emb is not None else block_ref_hist(r_hist)
+                k_i = self.k_proj(k_i)
                 # print(f"hi 111 {k_i}") 
             else:
                 k_i = block_ref_hist(r_hist)
+                k_i = self.k_proj(k_i)
                 # print(f"hi else {k_i}")
             k_list.append(k_i)
         
@@ -302,8 +307,10 @@ class CrossAttentionBlock(nn.Module):
         for r_future in ref_future_list:
             if isinstance(block_ref_future, UNetBlock):
                 v_i = block_ref_future(r_future, emb=emb) if emb is not None else block_ref_future(r_future)
+                v_i = self.v_proj(v_i)
             else:
                 v_i = block_ref_future(r_future)
+                v_i = self.v_proj(v_i)
             v_list.append(v_i)
         
         def prepare(t):

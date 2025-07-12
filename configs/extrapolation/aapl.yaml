@@ -20,9 +20,9 @@ freq: day
 # transform:
 use_stft: false
 delay: 3
-embedding: 32
+embedding: 16 #32 
 # model:
-img_resolution: 32
+img_resolution: 16 #32
 input_channels: 1
 unet_channels: 64
 ch_mult: [1, 2]

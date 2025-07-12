@@ -158,6 +158,7 @@ def get_x_and_mask(args, data):
         else:
             x_ts = data['observed_data'].to(args.device)
             mask_ts = data['mask_predicted_data'].to(args.device)
+        print("không mask")
     else:
         if args.task == 'extrapolation':
             x_ts = data[0].float().to(args.device)
@@ -166,6 +167,7 @@ def get_x_and_mask(args, data):
             mask_ts[:, :x_ts.shape[1] // 2] = 1
         else:
             x_ts = data[0].float().to(args.device)
+            
             # --- generate random mask and mask x as it time series --- #
             B, T, N = x_ts.shape
             mask_ts = torch.rand((B, T, N)).to(args.device)

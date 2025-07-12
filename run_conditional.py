@@ -70,7 +70,8 @@ def main(args):
                         local_args.top_k = top_k
                         local_args.step_size = step_size
                         
-                        reference = f"/home/user11/binhnkt/ImagenTime_New_flow_3_Backup/ENCODE_IMAGE_UNET/{local_args.run_type}/{local_args.model_name}/{local_args.symbols}/{local_args.convert_method}/{local_args.seq_len}/{local_args.top_k}_{local_args.step_size}.pt"
+                        # reference = f"/home/user11/binhnkt/ImagenTime_New_flow_3_Backup/ENCODE_IMAGE_UNET/{local_args.run_type}/{local_args.model_name}/{local_args.symbols}/{local_args.convert_method}/{local_args.seq_len}/{local_args.top_k}_{local_args.step_size}.pt"
+                        reference = f"/home/user11/binhnkt/ImagenTime_New_flow_3_Backup/NORM_ENCODE_IMAGE_UNET/only/ViT-B-32/GOOG/gasf_gadf_linear_trend/40/{local_args.top_k}_{local_args.step_size}.pt"
                         ref = torch.load(reference)
                         # print(f"Shape of ref: {ref.shape}")
 
@@ -121,12 +122,8 @@ def main(args):
                                 batch, seq_len, top_k = x_ref.shape    # #([32, 40, 3])
                                 half = seq_len // 2
 # 2. x_hist/fut kích thước /2
-                                x_hist = x_ref[:, :half, :]   #([32, 20, 3])
-                                x_future = x_ref[:, half:, :] 
-                                # print(f" x_hist shape {x_hist.shape} {x_hist}") 
-                                # 40 
-                                # x_hist = x_ref
-                                # x_future = x_ref
+                                x_hist = x_ref   #([32, 40, 3])
+                                x_future = x_ref[:, half:, :] ##([32, 20, 3]) future
 
                                 total_samples += batch
                                 sample_img = model.ts_to_img(x_ref[:, :, 0])  # shape: (batch_size, C, H, W)
@@ -142,12 +139,7 @@ def main(args):
                                     # x_ref_ts_img[:, j] = model.ts_to_img(x_ref[:, :, j]).squeeze(1)  
                                     x_ref_hist_img[:, j] = model.ts_to_img(x_hist[:, :, j]).squeeze(1)  #([32, 3, 16, 16]) 
                                     x_ref_future_img[:, j] = model.ts_to_img(x_future[:, :, j]).squeeze(1) 
-                                # print(f"Shape of x_ref_hist_img: {x_ref_hist_img.shape}")   
-                                # torch.set_printoptions(threshold=torch.inf, linewidth=200)
-                                # print(f"x_ref_hist_img: {x_ref_hist_img}")
-                                # print(f"Shape of x_ref_future_img: {x_ref_future_img.shape}")
-                                # torch.set_printoptions(threshold=torch.inf, linewidth=200)
-                                # print(f"x_ref_future_img: {x_ref_future_img}")
+
 
                                 # transform to image
                                 x_ts_img = model.ts_to_img(x_ts)     
@@ -156,9 +148,10 @@ def main(args):
                                 # pad mask with 1
                                 mask_ts_img = model.ts_to_img(mask_ts,pad_val=1)
                                 optimizer.zero_grad()
-                                # Shape of x_ts_img: {x_ts_img.shape}, mask_ts_img: {mask_ts_img.shape}"
-                                #logger.log_shape(f'train/shape/x_ts_img', x_ts_img.shape)
-                                #logger.log_shape(f'train/shape/mask_ts_img', mask_ts_img.shape)    
+                                
+                                # create hist | mask, mask giống với x_ts
+                                mask_for_hist = mask_ts_img.expand(-1, args.top_k, -1, -1) 
+                                x_ref_hist_img = x_ref_hist_img * mask_for_hist
                                 # loss = model.loss_fn_impute(x_ts_img, mask_ts_img, ref = x_ref_ts_img, top_k=args.top_k,epoch=epoch, num_epochs=args.epochs)
                                 loss = model.loss_fn_impute(x_ts_img, mask_ts_img, ref_hist = x_ref_hist_img, ref_future = x_ref_future_img, top_k=args.top_k,epoch=epoch, num_epochs=args.epochs)
                                 
@@ -224,7 +217,7 @@ def main(args):
                                         # x_future = x_ref[:, half:, :] 
 
 #20 20 
-                                        x_hist = x_ref[:, :half, :]    #([32, 20, 3])
+                                        x_hist = x_ref  #([32, 20, 3])
                                         x_future = x_ref[:, half:, :] 
 #40 40 
                                         # x_hist = x_ref    #([32, 20, 3])
@@ -248,6 +241,8 @@ def main(args):
                                         x_ts_img = model.ts_to_img(x_ts)
                                         mask_ts_img = model.ts_to_img(mask_ts, pad_val=1)
 
+                                        mask_for_hist = mask_ts_img.expand(-1, args.top_k, -1, -1) 
+                                        x_ref_hist_img = x_ref_hist_img * mask_for_hist
                                         # sample from the model
                                         # and impute, both interpolation and extrapolation are similar just the mask is different
                                         # x_img_sampled = process.interpolate(x_ts_img, mask_ts_img, ref=x_ref_ts_img).to(x_ts_img.device)
