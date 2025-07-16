@@ -6,6 +6,8 @@ import sys
 import torch
 import torch.utils.data as Data
 from sklearn.preprocessing import MinMaxScaler as Ori_MinMaxScaler
+from sklearn.preprocessing import StandardScaler
+
 from torch.utils.data import DataLoader, TensorDataset
 
 from data.data_provider.data_factory import data_provider
@@ -87,7 +89,7 @@ def sine_data_generation(no, seq_len, dim):
     return data
 
 
-def real_data_loading(data_name, seq_len):
+def real_data_loading(args, data_name, seq_len):
     """Load and preprocess real-world data.
 
     Args:
@@ -113,9 +115,28 @@ def real_data_loading(data_name, seq_len):
         ori_data = np.loadtxt('./data/short_range/metro_data.csv', delimiter=",", skiprows=1)
 
     # Flip the data to make chronological data
-    ori_data = ori_data[::-1]
-    # Normalize the data
-    #ori_data = MinMaxScaler(ori_data)
+    #ori_data = ori_data[::-1]
+
+    ori_data = torch.Tensor(ori_data)  # shape [N]
+
+    train_ratio = 0.7
+    train_size = int(len(ori_data) * train_ratio)
+    train_data = ori_data[:train_size]
+    test_data = ori_data[train_size:]
+
+    scaler = Ori_MinMaxScaler() 
+    train_data = scaler.fit_transform(train_data.reshape(-1, 1)).reshape(train_data.shape)
+    test_data = scaler.transform(test_data.reshape(-1, 1)).reshape(test_data.shape)
+    train_data = torch.tensor(train_data, dtype=torch.float32)
+    test_data = torch.tensor(test_data, dtype=torch.float32)
+    ori_data = torch.cat((train_data, test_data), dim=0)
+    # Save mean and std 
+    mean, std = scaler.data_min_, scaler.data_max_ - scaler.data_min_
+
+    args.mean, args.std = torch.Tensor(mean), torch.Tensor(std)
+    
+    args.mean, args.std = args.mean.to(args.device), args.std.to(args.device)
+
 
     # Preprocess the data
     temp_data = []
@@ -124,14 +145,13 @@ def real_data_loading(data_name, seq_len):
         _x = ori_data[i:i + seq_len]
         temp_data.append(_x)
 
-    # Mix the data (to make it similar to i.i.d)
-    idx = np.random.permutation(len(temp_data))
-    data = []
-    for i in range(len(temp_data)):
-        data.append(temp_data[idx[i]])
+    return temp_data
 
-    return data
 
+def normalize(data, mean=None, std=None):
+    return (data - mean) / (std + 1e-7)
+def denormalize(data, mean, std):
+    return data * std + mean
 
 def gen_dataloader(args):
     if args.dataset == 'sine':
@@ -141,11 +161,11 @@ def gen_dataloader(args):
         train_set = Data.TensorDataset(ori_data)
 
     elif args.dataset in ['goog', 'amzn', 'aapl', 'energy']:
-        ori_data = real_data_loading(args.dataset, args.seq_len)
+        ori_data = real_data_loading(args, args.dataset, args.seq_len)
         #ori_data = torch.Tensor(np.array(ori_data))
         #train_set = Data.TensorDataset(ori_data)
         
-        ori_data = torch.Tensor(np.array(ori_data))  # [N, seq_len, features] hoặc tương đương
+        ori_data = torch.Tensor(np.array(ori_data))  # [N, seq_len, features]
 
         train_ratio = 0.7
         train_size = int(len(ori_data) * train_ratio)
@@ -153,64 +173,22 @@ def gen_dataloader(args):
 
         train_data = ori_data[:train_size]
         test_data = ori_data[train_size:]
-        # train_set = Data.TensorDataset(train_data)
-        # test_set = Data.TensorDataset(test_data)
+        
 
-        N_train, seq_len = train_data.shape
-        N_test = test_data.shape[0]
-        n_features = 1
-
-        train_reshaped = train_data.reshape(-1, n_features).numpy()
-        test_reshaped = test_data.reshape(-1, n_features).numpy()
-
-        scaler = Ori_MinMaxScaler()
-        train_scaled = scaler.fit_transform(train_data.numpy())     # [N_train, seq_len]
-        test_scaled = scaler.transform(test_data.numpy())           # [N_test, seq_len]
-        # back to tensor
-        train_scaled = torch.tensor(train_scaled, dtype=torch.float32)
-        test_scaled = torch.tensor(test_scaled, dtype=torch.float32)
         # create TensorDataset and DataLoader
-        train_set = Data.TensorDataset(train_scaled)
-        test_set = Data.TensorDataset(test_scaled)
+        train_set = Data.TensorDataset(train_data)
+        test_set = Data.TensorDataset(test_data)
+        
 
-        train_loader = Data.DataLoader(dataset=train_set, batch_size=args.batch_size, shuffle=True,
+        train_loader = Data.DataLoader(dataset=train_set, batch_size=args.batch_size, shuffle=False,
                                 num_workers=args.num_workers, drop_last=False)
 
         test_loader = Data.DataLoader(dataset=test_set, batch_size=args.batch_size, shuffle=False,
-                                num_workers=args.num_workers, drop_last=False)
+                                num_workers= args.num_workers, drop_last=False)
         
 
         return train_loader, test_loader
 
-        
-
-    elif args.dataset in ['mujoco']:
-        train_set = MujocoDataset(args.seq_len, args.dataset, args.path, 0.0)
-
-    elif args.dataset in ['solar_weekly', 'fred_md', 'nn5_daily', 'temperature_rain', 'traffic_hourly', 'kdd_cup']:
-        ori_data = parse_datasets(args.dataset, args.batch_size, args.device, args)
-        ori_data = torch.stack(ori_data)
-        args.seq_len = ori_data.shape[1]  # update seq_len to match the dataset
-        full_len = ori_data.shape[0]
-        randperm = torch.randperm(full_len)
-        train_data = ori_data[randperm[:int(full_len * 0.7)]]
-        test_data = ori_data[randperm[int(full_len * 0.7):]]
-        train_set = Data.TensorDataset(train_data)
-        test_set = Data.TensorDataset(test_data)
-        train_loader = Data.DataLoader(dataset=train_set, batch_size=args.batch_size, shuffle=True,
-                                       num_workers=args.num_workers)
-        test_loader = Data.DataLoader(dataset=test_set, batch_size=args.batch_size, shuffle=True,
-                                      num_workers=args.num_workers)
-        return train_loader, test_loader
-
-    elif args.dataset in ['physionet', 'climate']:
-        train_loader, test_loader = parse_datasets(args.dataset, args.batch_size, args.device, args)
-        return train_loader, test_loader
-
-    elif args.dataset in ['ETTh1', 'ETTh2', 'ETTm1', 'ETTm2']:
-        train_data, train_loader = data_provider(args, flag='train')
-        test_data, test_loader = data_provider(args, flag='test')
-        return train_loader, test_loader
 
     train_loader = Data.DataLoader(dataset=train_set, batch_size=args.batch_size, shuffle=True,
                                    num_workers=args.num_workers, drop_last=True)
@@ -218,12 +196,6 @@ def gen_dataloader(args):
     # for the short-term time series benchmark, the entire dataset for both training and testing
     return train_loader, train_loader
 
-
-def normalize(data):
-    numerator = data - np.min(data, 0)
-    denominator = np.max(data, 0) - np.min(data, 0)
-    norm_data = numerator / (denominator + 1e-7)
-    return norm_data
 
 
 def stft_transform(data, args):
@@ -257,70 +229,3 @@ def save_data(dir, **tensors):
         torch.save(tensor_value, str(dir / tensor_name) + '.pt')
 
 
-class MujocoDataset(torch.utils.data.Dataset):
-    def __init__(self, seq_len, data_name, path, missing_rate=0.0):
-        # import pdb;pdb.set_trace()
-        import pathlib
-        here = pathlib.Path(__file__).resolve().parent.parent
-        base_loc = here / 'data'
-        loc = pathlib.Path(path)
-        if os.path.exists(loc):
-            tensors = load_data(loc)
-            self.samples = tensors['data']
-            self.original_sample = tensors['original_data']
-            self.original_sample = np.array(self.original_sample)
-            self.samples = np.array(self.samples)
-            self.size = len(self.samples)
-        else:
-            if not os.path.exists(base_loc):
-                os.mkdir(base_loc)
-            if not os.path.exists(loc):
-                os.mkdir(loc)
-            loc = here / 'data' / data_name
-            tensors = load_data(loc)
-            time = tensors['train_X'][:, :, :1].cpu().numpy()
-            data = tensors['train_X'][:, :, 1:].reshape(-1, 14).cpu().numpy()
-
-            self.original_sample = []
-            norm_data = normalize(data)
-            norm_data = norm_data.reshape(4620, seq_len, 14)
-            idx = torch.randperm(len(norm_data))
-
-            for i in range(len(norm_data)):
-                self.original_sample.append(norm_data[idx[i]].copy())
-            self.X_mean = np.mean(np.array(self.original_sample), axis=0).reshape(1,
-                                                                                  np.array(self.original_sample).shape[
-                                                                                      1],
-                                                                                  np.array(self.original_sample).shape[
-                                                                                      2])
-            generator = torch.Generator().manual_seed(56789)
-            for i in range(len(norm_data)):
-                removed_points = torch.randperm(norm_data[i].shape[0], generator=generator)[
-                                 :int(norm_data[i].shape[0] * missing_rate)].sort().values
-                norm_data[i][removed_points] = float('nan')
-            norm_data = np.concatenate((norm_data, time), axis=2)
-            self.samples = []
-            for i in range(len(norm_data)):
-                self.samples.append(norm_data[idx[i]])
-
-            self.samples = np.array(self.samples)
-
-            norm_data_tensor = torch.Tensor(self.samples[:, :, :-1]).float().cuda()
-
-            time = torch.FloatTensor(list(range(norm_data_tensor.size(1)))).cuda()
-            self.last = torch.Tensor(self.samples[:, :, -1][:, -1]).float()
-            self.original_sample = torch.tensor(self.original_sample)
-            self.samples = torch.tensor(self.samples)
-            loc = here / 'data' / (data_name + str(missing_rate))
-            save_data(loc, data=self.samples,
-                      original_data=self.original_sample
-                      )
-            self.original_sample = np.array(self.original_sample)
-            self.samples = np.array(self.samples)
-            self.size = len(self.samples)
-
-    def __getitem__(self, index):
-        return self.original_sample[index], self.samples[index]
-
-    def __len__(self):
-        return len(self.samples)

@@ -82,7 +82,7 @@ def parse_args_cond():
     parser.add_argument('--diffusion_steps', type=int, help='number of diffusion steps')
     parser.add_argument('--ema', type=bool, help='use ema')
     parser.add_argument('--ema_warmup', type=int, help='ema warmup')
-    parser.add_argument('--patience', type=int, default=5, help='early stopping patience')
+    parser.add_argument('--patience', type=int, default=8, help='early stopping patience')
 
     # --- logging ---
     parser.add_argument('--logging_iter', type=int, default=5,

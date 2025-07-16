@@ -2,7 +2,7 @@ import os, sys
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import copy, csv, wandb
-wandb.login(key = '4c057ed43aa147417d2e021d9edcd9aa80cdb82e')
+# wandb.login(key = '4c057ed43aa147417d2e021d9edcd9aa80cdb82e')
 import torch
 import numpy as np
 import torch.multiprocessing
@@ -52,7 +52,7 @@ def main(args):
             for convert_method in args.convert_method:
                 
                     for step_size in args.step_sizes:
-                        wandb.init(project=f"All_Optimize_Skip_Decoder_Unet_report_{args.epochs}_{args.top_k}_{step_size}", name="Binh")
+                        # wandb.init(project=f"All_Optimize_Skip_Decoder_Unet_report_{args.epochs}_{args.top_k}_{step_size}", name="Binh")
                         early_stopping = EarlyStopping(patience=args.patience, verbose=True)
                         path = os.path.join('checkpoints', args.symbols)
                         if not os.path.exists(path):
@@ -70,8 +70,8 @@ def main(args):
                         local_args.top_k = top_k
                         local_args.step_size = step_size
                         
-                        # reference = f"/home/user11/binhnkt/ImagenTime_New_flow_3_Backup/ENCODE_IMAGE_UNET/{local_args.run_type}/{local_args.model_name}/{local_args.symbols}/{local_args.convert_method}/{local_args.seq_len}/{local_args.top_k}_{local_args.step_size}.pt"
-                        reference = f"/home/user11/binhnkt/ImagenTime_New_flow_3_Backup/NORM_ENCODE_IMAGE_UNET/only/ViT-B-32/GOOG/gasf_gadf_linear_trend/40/{local_args.top_k}_{local_args.step_size}.pt"
+                        reference = f"/home/user11/binhnkt/ImagenTime_New_flow_3_Backup/ENCODE_IMAGE_UNET/{local_args.run_type}/{local_args.model_name}/{local_args.symbols}/{local_args.convert_method}/{local_args.seq_len}/{local_args.top_k}_{local_args.step_size}.pt"
+                        # reference = f"/home/user11/binhnkt/ImagenTime_New_flow_3_Backup/NORM_ENCODE_IMAGE_UNET/only/ViT-B-32/GOOG/gasf_gadf_linear_trend/40/{local_args.top_k}_{local_args.step_size}.pt"
                         ref = torch.load(reference)
                         # print(f"Shape of ref: {ref.shape}")
 
@@ -119,10 +119,16 @@ def main(args):
                                     for v in range(args.top_k):
 
                                         x_ref[u, :, v] = ref[total_samples * args.seq_len * args.top_k + u * args.seq_len * args.top_k + v * args.seq_len :  total_samples * args.seq_len * args.top_k + u * args.seq_len * args.top_k + (v + 1) * args.seq_len].to(args.device)
+
+                                        x_ref[u, :, v] = x_ref[u, :, v] - args.mean
+                                        x_ref[u, :, v] = x_ref[u, :, v] / args.std   
+
                                 batch, seq_len, top_k = x_ref.shape    # #([32, 40, 3])
                                 half = seq_len // 2
 # 2. x_hist/fut kích thước /2
-                                x_hist = x_ref   #([32, 40, 3])
+                                # x_hist = torch.zeros_like(x_ref)
+                                # x_hist[:, :half, :] = x_ref[:, :half, :]   #([32, 40, 3])
+                                x_hist = x_ref[:, :half, :]
                                 x_future = x_ref[:, half:, :] ##([32, 20, 3]) future
 
                                 total_samples += batch
@@ -168,7 +174,7 @@ def main(args):
                                 train_losses.append(loss.item())
                             
                             avg_train_loss = sum(train_losses) / len(train_losses)
-                            wandb.log({"train/loss": avg_train_loss}, step=epoch)
+                            # wandb.log({"train/loss": avg_train_loss}, step=epoch)
                                 
 
                             # --- evaluation loop ---
@@ -203,6 +209,8 @@ def main(args):
                                                 #print(i * args.batch_size * args.seq_len * args.seq_len * args.top_k + u * args.seq_len * args.seq_len * args.top_k + (v + 1) * args.seq_len)
                                                 # add normalize
                                                 x_ref[u, :, v] = ref[total_samples * args.seq_len * args.top_k + u * args.seq_len * args.top_k + v * args.seq_len :  total_samples * args.seq_len * args.top_k + u * args.seq_len * args.top_k + (v + 1) * args.seq_len].to(args.device)
+                                                x_ref[u, :, v] = x_ref[u, :, v] - args.mean                                        
+                                                x_ref[u, :, v] = x_ref[u, :, v] / args.std                                   
                                         batch, seq_len, top_k = x_ref.shape  # 32,40,3
                                         half = seq_len // 2
 
@@ -217,7 +225,9 @@ def main(args):
                                         # x_future = x_ref[:, half:, :] 
 
 #20 20 
-                                        x_hist = x_ref  #([32, 20, 3])
+                                        # x_hist = torch.zeros_like(x_ref)
+                                        # x_hist[:, :half, :] = x_ref[:, :half, :]   #([32, 20, 3])
+                                        x_hist = x_ref[:, :half, :]
                                         x_future = x_ref[:, half:, :] 
 #40 40 
                                         # x_hist = x_ref    #([32, 20, 3])
@@ -266,10 +276,10 @@ def main(args):
                             eval_losses.append(scores['mse']) # use for wandb
                             vali_loss = scores['mse'] # use for Early stopping
                             print(f"Epoch {epoch}, MSE: {scores['mse']}, MAE: {scores['mae']}")
-                            wandb.log({
-                                "val/mse": scores['mse'],
-                                "val/mae": scores['mae']
-                            }, step=epoch)
+                            # wandb.log({
+                            #     "val/mse": scores['mse'],
+                            #     "val/mae": scores['mae']
+                            # }, step=epoch)
                             for key, value in scores.items():
                                 logger.log(f'test/{key}', value, epoch)
                             
@@ -289,14 +299,14 @@ def main(args):
                                 ema_model = model.model_ema if args.ema else None
                                 save_checkpoint(args.log_dir, state, epoch, ema_model)
                         
-                        wandb.finish()
+                        # wandb.finish()
                         
                         print(f"Top k: {local_args.top_k}, Step size: {local_args.step_size}, Best MSE: {best_score_mse}, Best MAE: {best_score_mae}")
                         
                         #csv_path = os.path.join('/home/user11/thongt/ImagenTime_New_flow_3/logs', 'best_scores.csv')
                         print('hello')
                         import pandas as pd
-                        filename_csv = "logs/New_Skip_Decoder_Unet_report.csv"
+                        filename_csv = "logs/New_Skip_Decoder_Unet_report_new.csv"
 
                         data = {
                             "seed": [local_args.seed],
@@ -313,7 +323,15 @@ def main(args):
                             'batch size': [args.batch_size], 
                             'epochs': [local_args.epochs], 
                             'Best_MSE': [best_score_mse],
-                            'Best_MAE': [best_score_mae]
+                            'Best_MAE': [best_score_mae],
+                            'unet_channels': [args.unet_channels], 
+                            'attn_resolution': [args.attn_resolution], 
+                            'ch_mult': [args.ch_mult],
+                            'img_resolution': [args.img_resolution],
+                            'input_channels': [args.input_channels],
+                            'patience': [args.patience],
+                            'learning_rate': [args.learning_rate],
+                            'weight_decay': [args.weight_decay],                           
                         }
 
                         df = pd.DataFrame(data)

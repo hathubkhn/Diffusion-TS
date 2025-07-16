@@ -275,7 +275,7 @@ class CrossAttentionBlock(nn.Module):
         # self.v_proj = nn.Conv2d(top_k * out_channels, in_channels, kernel_size=1)
         self.k_proj = nn.Conv2d(out_channels, out_channels, kernel_size=1)
         self.v_proj = nn.Conv2d(out_channels, out_channels, kernel_size=1)
-    def forward(self, x, ref_hist, ref_future, top_k, block, block_ref_hist, block_ref_future, emb=None, block_idx='unknown', epoch=0, num_epochs=20):
+    def forward(self, x, ref_hist, ref_future, top_k, block, block_ref_hist, block_ref_future, emb=None, block_idx='unknown', epoch=0, num_epochs=25):
         # print("x trong forward cross ")
 
         B, C, H, W = x.shape
@@ -285,7 +285,7 @@ class CrossAttentionBlock(nn.Module):
 
         # print(f"Đây là q {q}")
         # Tách từng ref riêng biệt
-        print(f"đây là shape {ref_hist.shape} {ref_hist} ") #(32,3,16,16)
+        # print(f"đây là shape {ref_hist.shape} {ref_hist} ") #(32,3,16,16)
         ref_hist_list = list(torch.chunk(ref_hist, chunks=self.top_k, dim=1)) #(32,1,16,16)
         ref_future_list = list(torch.chunk(ref_future, chunks=self.top_k, dim=1))
         
@@ -477,7 +477,7 @@ class DhariwalUNet(torch.nn.Module):
 
         
 
-    def forward(self, x, ref_hist,ref_future, top_k, noise_labels, class_labels, augment_labels=None, epoch=0, num_epochs=20):
+    def forward(self, x, ref_hist,ref_future, top_k, noise_labels, class_labels, augment_labels=None, epoch=0, num_epochs=25):
         # Mapping.
         # print(f"DhariwalUNet - Epoch: {epoch}, Num_epochs: {num_epochs}")
         emb = self.map_noise(noise_labels)
@@ -544,7 +544,11 @@ class DhariwalUNet(torch.nn.Module):
                 x = torch.cat([x, skips.pop()], dim=1)
 
             x = block(x, emb)
-
+            # x, ref_hist, ref_future = block_cross(x, ref_hist, ref_future, top_k=top_k, block=block,
+            #                         block_ref_hist=block_ref_hist, block_ref_future=block_ref_future,
+            #                         emb=emb, block_idx=key, epoch=epoch, num_epochs=num_epochs)
+            # skips_ref_hist.append(ref_hist)
+            # skips_ref_future.append(ref_future)
         #     print(f"Shape of x after attention: {x.shape}")
         x = self.out_conv(silu(self.out_norm(x)))
         return x
@@ -578,7 +582,7 @@ class EDMPrecond(torch.nn.Module):
         self.sigma_data = sigma_data
         self.model = globals()[model_type](img_resolution=img_resolution, in_channels=img_channels, out_channels=img_channels, top_k = top_k, label_dim=label_dim, **model_kwargs)
 
-    def forward(self, x, sigma, ref_hist,ref_future, top_k, class_labels=None, force_fp32=False, epoch=0, num_epochs=20, **model_kwargs):
+    def forward(self, x, sigma, ref_hist,ref_future, top_k, class_labels=None, force_fp32=False, epoch=0, num_epochs=25, **model_kwargs):
         # print(f"EDMPrecond - Epoch: {epoch}, Num_epochs: {num_epochs}")
         x = x.to(torch.float32) # his + fut noise  (32, 1, 16, 16) 
         # print(f"Shape of x networks: {x.shape}") 
