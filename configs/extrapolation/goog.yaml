@@ -19,7 +19,7 @@ seasonal_patterns: Monthly # not in use
 freq: day
 # transform:
 use_stft: false
-delay: 8
+delay: 3
 embedding: 16 #32
 # model:
 img_resolution: 16 # 32

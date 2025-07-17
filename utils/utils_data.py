@@ -186,49 +186,41 @@ def gen_dataloader(args):
         ori_data = torch.Tensor(np.array(ori_data))
         train_set = Data.TensorDataset(ori_data)
 
-    elif args.dataset in ['goog', 'amzn', 'aapl', 'energy','stock']:
-        # ori_data = real_data_loading(args, args.dataset, args.seq_len)
-        # #ori_data = torch.Tensor(np.array(ori_data))
-        # #train_set = Data.TensorDataset(ori_data)
-        
-        # ori_data = torch.Tensor(np.array(ori_data))  # [N, seq_len, features]
-
-        # train_ratio = 0.7
-        # train_size = int(len(ori_data) * train_ratio)
-        # test_size = len(ori_data) - train_size
-
-        # train_data = ori_data[:train_size]
-        # test_data = ori_data[train_size:]
-        
-
-        # # create TensorDataset and DataLoader
-        # train_set = Data.TensorDataset(train_data)
-        # test_set = Data.TensorDataset(test_data)
-        
-
-        # train_loader = Data.DataLoader(dataset=train_set, batch_size=args.batch_size, shuffle=False,
-        #                         num_workers=args.num_workers, drop_last=False)
-
-        # test_loader = Data.DataLoader(dataset=test_set, batch_size=args.batch_size, shuffle=False,
-        #                         num_workers= args.num_workers, drop_last=False)
-        
-
-        # return train_loader, test_loader
-
+    elif args.dataset in ['goog', 'amzn', 'aapl', 'energy']:
         train_data, test_data = real_data_loading(args, args.dataset, args.seq_len)
+        reference = f"./ENCODE_IMAGE_UNET/{args.run_type}/ViT-B-32/{args.symbols}/gasf_gadf_linear_trend/{args.seq_len}/{args.top_k}_10.pt" #{args.model_name}, {args.convert_method}, {args.step_sizes}
+        ref = torch.load(reference)
         
-        train_data = torch.Tensor(np.array(train_data))  
+        train_data = torch.Tensor(np.array(train_data))
         test_data = torch.Tensor(np.array(test_data))
+        num_train = len(train_data)
+        num_test = len(test_data)
+        train_ref_data = []
+        test_ref_data = []
+        for i in range(num_train):
+            ref_i = ref[i * args.top_k * args.seq_len: (i + 1) * args.top_k * args.seq_len]
+            ref_i = torch.tensor(ref_i, dtype=torch.float32)
+            train_ref_data.append(torch.cat([train_data[i], ref_i], dim=0))
+                            
+
+        # có seq_len - 1 sample giữa train và test không được dùng nên ko load reference
+        for i in range(num_test):
+            index = i + num_train + args.seq_len - 1
+            ref_i = ref[index * args.top_k * args.seq_len: (index + 1) * args.top_k * args.seq_len]
+            ref_i = torch.tensor(ref_i, dtype=torch.float32)
+            test_ref_data.append(torch.cat([test_data[i], ref_i], dim=0))
+
         # create TensorDataset and DataLoader
-        train_set = Data.TensorDataset(train_data)
-        test_set = Data.TensorDataset(test_data)
+        train_ref_data = torch.stack(train_ref_data)
+        test_ref_data = torch.stack(test_ref_data)
+        train_set = Data.TensorDataset(train_ref_data)
+        test_set = Data.TensorDataset(test_ref_data)
         
         train_loader = Data.DataLoader(dataset=train_set, batch_size=args.batch_size, shuffle=True,
                                 num_workers=args.num_workers, drop_last=False)
 
         test_loader = Data.DataLoader(dataset=test_set, batch_size=args.batch_size, shuffle=False,
                                 num_workers= args.num_workers, drop_last=False)
-        
 
         return train_loader, test_loader
 

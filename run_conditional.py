@@ -71,9 +71,9 @@ def main(args):
                         local_args.top_k = top_k
                         local_args.step_size = step_size
                         
-                        reference = f"/home/user11/binhnkt/ImagenTime_New_flow_3_Backup/ENCODE_IMAGE_UNET/{local_args.run_type}/{local_args.model_name}/{local_args.symbols}/{local_args.convert_method}/{local_args.seq_len}/{local_args.top_k}_{local_args.step_size}.pt"
+                        # reference = f"./ENCODE_IMAGE_UNET/{local_args.run_type}/{local_args.model_name}/{local_args.symbols}/{local_args.convert_method}/{local_args.seq_len}/{local_args.top_k}_{local_args.step_size}.pt"
                         # reference = f"/home/user11/binhnkt/ImagenTime_New_flow_3_Backup/NORM_ENCODE_IMAGE_UNET/only/ViT-B-32/GOOG/gasf_gadf_linear_trend/40/{local_args.top_k}_{local_args.step_size}.pt"
-                        ref = torch.load(reference)
+                        # ref = torch.load(reference)
                         # print(f"Shape of ref: {ref.shape}")
 
                         
@@ -109,25 +109,22 @@ def main(args):
                             # --- train loop ---
                             total_samples = 0 # the number of sample used
                             for i, data in enumerate(train_loader, 0): #1
-                                # if i == 1:
-                                #     break
-                                batch = len(data[0])  # because last batch can not enough samples (!= batch size)
+                                x = data[0]  # shape: [batch_size, total_seq_len]
+                                batch = len(x)     ## because last batch can not enough samples (!= batch size)
+                                ref = x[:, local_args.seq_len:]  # shape: [batch_size, top_k * seq_len]
+
+                                x_input = x[:, :local_args.seq_len]  # shape: [batch_size, seq_len]
                                 
-                                # mask_ts, x_ts = get_x_and_mask(args, data) 
-                                x_ts = data[0].float().to(args.device)
-                                # print("11111")
-                                # half ones and half zeros
-                                mask_ts = torch.zeros_like(x_ts)
-                                mask_ts[:, :x_ts.shape[1] // 2] = 1
-                                x_ref = torch.zeros((batch, args.seq_len, args.top_k), device=args.device)
+                                # create mask & x_ts
+                                mask_ts, x_ts = get_x_and_mask(args, x_input)
+  
+                                
+                                mask_ts, x_ts = get_x_and_mask(args, x_input) 
+                                
+                                x_ref = ref.reshape(batch, local_args.top_k, local_args.seq_len).to(local_args.device)
+                                
+                                x_ref = (x_ref - args.mean) / args.std
                                 # print(f"x_ref {x_ref}") #(32,40,3)
-                                for u in range(batch):
-                                    for v in range(args.top_k):
-
-                                        x_ref[u, :, v] = ref[total_samples * args.seq_len * args.top_k + u * args.seq_len * args.top_k + v * args.seq_len :  total_samples * args.seq_len * args.top_k + u * args.seq_len * args.top_k + (v + 1) * args.seq_len].to(args.device)
-
-                                        x_ref[u, :, v] = x_ref[u, :, v] - args.mean
-                                        x_ref[u, :, v] = x_ref[u, :, v] / args.std   
 
                                 batch, seq_len, top_k = x_ref.shape    # #([32, 40, 3])
                                 half = seq_len // 2
@@ -203,30 +200,22 @@ def main(args):
                                                             (args.input_channels, args.img_resolution, args.img_resolution))
                                     j = len(train_loader)
                                     for idx, data in enumerate(test_loader, 0):
-                                        # print shape of data
-                                        #print("Shape of data: ", data.shape)
-                                        # if j == 1:
-                                        #     break
-                                        batch = len(data[0])
-                
+                                        x = data[0]  # shape: [batch_size, total_seq_len]
+                                        batch = len(x)     ## because last batch can not enough samples (!= batch size)
+                                        ref = x[:, local_args.seq_len:]  # shape: [batch_size, top_k * seq_len]
 
-                                        x_ts = data[0].float().to(args.device)
-                                        # half ones and half zeros
-                                        mask_ts = torch.zeros_like(x_ts)
-                                        mask_ts[:, :x_ts.shape[1] // 2] = 1
-
-                                        x_ref = torch.zeros((batch, args.seq_len, args.top_k), device=args.device)
-                                        for u in range(batch):
-                                            for v in range(args.top_k):
-                                                # print("chỉ số: ",idx + j) #99
-                                                # print("batch size: ", args.batch_size) #8 
-                                                # print((idx + j) * args.batch_size * args.seq_len * args.top_k + u * args.seq_len * args.top_k + v * args.seq_len)
-                                                
-                                                #print(i * args.batch_size * args.seq_len * args.seq_len * args.top_k + u * args.seq_len * args.seq_len * args.top_k + (v + 1) * args.seq_len)
-                                                # add normalize
-                                                x_ref[u, :, v] = ref[total_samples * args.seq_len * args.top_k + u * args.seq_len * args.top_k + v * args.seq_len :  total_samples * args.seq_len * args.top_k + u * args.seq_len * args.top_k + (v + 1) * args.seq_len].to(args.device)
-                                                x_ref[u, :, v] = x_ref[u, :, v] - args.mean                                        
-                                                x_ref[u, :, v] = x_ref[u, :, v] / args.std                                   
+                                        x_input = x[:, :local_args.seq_len]  # shape: [batch_size, seq_len]
+                                        
+                                        # create mask & x_ts
+                                        mask_ts, x_ts = get_x_and_mask(args, x_input)
+        
+                                        
+                                        mask_ts, x_ts = get_x_and_mask(args, x_input) 
+                                        
+                                        x_ref = ref.reshape(batch, local_args.top_k, local_args.seq_len).to(local_args.device)
+                                        
+                                        x_ref = (x_ref - args.mean) / args.std    
+                                                                    
                                         batch, seq_len, top_k = x_ref.shape  # 32,40,3
                                         half = seq_len // 2
 
@@ -332,6 +321,7 @@ def main(args):
                         filename_csv = "logs/New_Skip_Decoder_Unet_report_new.csv"
                         from datetime import datetime 
                         data = {
+                            "ablation": "down-block",
                             "seed": [local_args.seed],
                             "diffusion steps": [local_args.diffusion_steps],
                             "symbols": [local_args.symbols],
