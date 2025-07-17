@@ -99,24 +99,50 @@ def real_data_loading(args, data_name, seq_len):
     Returns:
       - data: preprocessed data.
     """
-    assert data_name in ['goog', 'amzn', 'aapl', 'energy', 'metro']
+    assert data_name in ['stock','goog', 'amzn', 'aapl', 'energy', 'metro']
 
-    if data_name == 'goog':
+    if args.symbols == 'GOOG':
         ori_data = np.loadtxt('./data/short_range/GOOG.csv', delimiter=",", skiprows=1)
+        print("CHạy với GOOG")
         # ori_data = pd.read_csv('./data/short_range/GOOG.csv', delimiter=",").values
         #ori_data = np.genfromtxt('./data/short_range/GOOG.csv', delimiter=",", skip_header=1, dtype=None, encoding='utf-8')
-    elif data_name == 'aapl':
+    elif args.symbols == 'AAPL':
         ori_data = np.loadtxt('./data/short_range/AAPL.csv', delimiter=",", skiprows=1)
-    elif data_name == 'amzn':
+    elif args.symbols == 'AMZN':
         ori_data = np.loadtxt('./data/short_range/AMZN.csv', delimiter=",", skiprows=1)
-    elif data_name == 'energy':
-        ori_data = np.loadtxt('./data/short_range/energy_data.csv', delimiter=",", skiprows=1)
-    elif data_name == 'metro':
-        ori_data = np.loadtxt('./data/short_range/metro_data.csv', delimiter=",", skiprows=1)
 
     # Flip the data to make chronological data
     #ori_data = ori_data[::-1]
 
+    # ori_data = torch.Tensor(ori_data)  # shape [N]
+
+    # train_ratio = 0.7
+    # train_size = int(len(ori_data) * train_ratio)
+    # train_data = ori_data[:train_size]
+    # test_data = ori_data[train_size:]
+
+    # scaler = Ori_MinMaxScaler() 
+    # train_data = scaler.fit_transform(train_data.reshape(-1, 1)).reshape(train_data.shape)
+    # test_data = scaler.transform(test_data.reshape(-1, 1)).reshape(test_data.shape)
+    # train_data = torch.tensor(train_data, dtype=torch.float32)
+    # test_data = torch.tensor(test_data, dtype=torch.float32)
+    # ori_data = torch.cat((train_data, test_data), dim=0)
+    # # Save mean and std 
+    # mean, std = scaler.data_min_, scaler.data_max_ - scaler.data_min_
+
+    # args.mean, args.std = torch.Tensor(mean), torch.Tensor(std)
+    
+    # args.mean, args.std = args.mean.to(args.device), args.std.to(args.device)
+
+
+    # # Preprocess the data
+    # temp_data = []
+    # # Cut data by sequence length
+    # for i in range(0, len(ori_data) - seq_len):
+    #     _x = ori_data[i:i + seq_len]
+    #     temp_data.append(_x)
+
+    # return temp_data
     ori_data = torch.Tensor(ori_data)  # shape [N]
 
     train_ratio = 0.7
@@ -124,28 +150,28 @@ def real_data_loading(args, data_name, seq_len):
     train_data = ori_data[:train_size]
     test_data = ori_data[train_size:]
 
-    scaler = Ori_MinMaxScaler() 
+    scaler = Ori_MinMaxScaler() # StandardScaler()
     train_data = scaler.fit_transform(train_data.reshape(-1, 1)).reshape(train_data.shape)
     test_data = scaler.transform(test_data.reshape(-1, 1)).reshape(test_data.shape)
     train_data = torch.tensor(train_data, dtype=torch.float32)
     test_data = torch.tensor(test_data, dtype=torch.float32)
-    ori_data = torch.cat((train_data, test_data), dim=0)
+    #ori_data = torch.cat((train_data, test_data), dim=0)
     # Save mean and std 
     mean, std = scaler.data_min_, scaler.data_max_ - scaler.data_min_
-
-    args.mean, args.std = torch.Tensor(mean), torch.Tensor(std)
-    
+    args.mean, args.std = torch.Tensor(mean), torch.Tensor(std)   
     args.mean, args.std = args.mean.to(args.device), args.std.to(args.device)
 
-
-    # Preprocess the data
-    temp_data = []
+    train_set = []
+    test_set = []
     # Cut data by sequence length
-    for i in range(0, len(ori_data) - seq_len):
-        _x = ori_data[i:i + seq_len]
-        temp_data.append(_x)
+    for i in range(0, len(train_data) - seq_len):
+        _x = train_data[i:i + seq_len]
+        train_set.append(_x)
+    for i in range(0, len(test_data) - seq_len):
+        _x = test_data[i:i + seq_len]
+        test_set.append(_x)
 
-    return temp_data
+    return train_set, test_set
 
 
 def normalize(data, mean=None, std=None):
@@ -160,27 +186,44 @@ def gen_dataloader(args):
         ori_data = torch.Tensor(np.array(ori_data))
         train_set = Data.TensorDataset(ori_data)
 
-    elif args.dataset in ['goog', 'amzn', 'aapl', 'energy']:
-        ori_data = real_data_loading(args, args.dataset, args.seq_len)
-        #ori_data = torch.Tensor(np.array(ori_data))
-        #train_set = Data.TensorDataset(ori_data)
+    elif args.dataset in ['goog', 'amzn', 'aapl', 'energy','stock']:
+        # ori_data = real_data_loading(args, args.dataset, args.seq_len)
+        # #ori_data = torch.Tensor(np.array(ori_data))
+        # #train_set = Data.TensorDataset(ori_data)
         
-        ori_data = torch.Tensor(np.array(ori_data))  # [N, seq_len, features]
+        # ori_data = torch.Tensor(np.array(ori_data))  # [N, seq_len, features]
 
-        train_ratio = 0.7
-        train_size = int(len(ori_data) * train_ratio)
-        test_size = len(ori_data) - train_size
+        # train_ratio = 0.7
+        # train_size = int(len(ori_data) * train_ratio)
+        # test_size = len(ori_data) - train_size
 
-        train_data = ori_data[:train_size]
-        test_data = ori_data[train_size:]
+        # train_data = ori_data[:train_size]
+        # test_data = ori_data[train_size:]
         
 
+        # # create TensorDataset and DataLoader
+        # train_set = Data.TensorDataset(train_data)
+        # test_set = Data.TensorDataset(test_data)
+        
+
+        # train_loader = Data.DataLoader(dataset=train_set, batch_size=args.batch_size, shuffle=False,
+        #                         num_workers=args.num_workers, drop_last=False)
+
+        # test_loader = Data.DataLoader(dataset=test_set, batch_size=args.batch_size, shuffle=False,
+        #                         num_workers= args.num_workers, drop_last=False)
+        
+
+        # return train_loader, test_loader
+
+        train_data, test_data = real_data_loading(args, args.dataset, args.seq_len)
+        
+        train_data = torch.Tensor(np.array(train_data))  
+        test_data = torch.Tensor(np.array(test_data))
         # create TensorDataset and DataLoader
         train_set = Data.TensorDataset(train_data)
         test_set = Data.TensorDataset(test_data)
         
-
-        train_loader = Data.DataLoader(dataset=train_set, batch_size=args.batch_size, shuffle=False,
+        train_loader = Data.DataLoader(dataset=train_set, batch_size=args.batch_size, shuffle=True,
                                 num_workers=args.num_workers, drop_last=False)
 
         test_loader = Data.DataLoader(dataset=test_set, batch_size=args.batch_size, shuffle=False,
@@ -189,12 +232,6 @@ def gen_dataloader(args):
 
         return train_loader, test_loader
 
-
-    train_loader = Data.DataLoader(dataset=train_set, batch_size=args.batch_size, shuffle=True,
-                                   num_workers=args.num_workers, drop_last=True)
-
-    # for the short-term time series benchmark, the entire dataset for both training and testing
-    return train_loader, train_loader
 
 
 

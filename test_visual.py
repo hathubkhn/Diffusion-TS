@@ -129,3 +129,4 @@ visualize_attention_map(attn, H, W, batch_idx=0, head_idx=0, save_path='attentio
                                 # x_hist[:, :half, :] = x_ref[:, :half, :]
                                 # # Gán nửa sau cho x_future
                                 # x_future[:, :seq_len - half, :] = x_ref[:, half:, :]
+torch.set_printoptions(threshold=torch.inf, linewidth=200)

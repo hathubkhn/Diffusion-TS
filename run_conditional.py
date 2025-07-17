@@ -4,6 +4,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import copy, csv, wandb
 # wandb.login(key = '4c057ed43aa147417d2e021d9edcd9aa80cdb82e')
 import torch
+import torch.nn as nn
 import numpy as np
 import torch.multiprocessing
 import logging
@@ -90,7 +91,7 @@ def main(args):
                         if args.resume:
                             ema_model = model.model_ema if args.ema else None # load ema model if available
                             init_epoch = restore_state(args, state, ema_model=ema_model)
-
+                        print_model_params(logger, model)
                         # --- train model ---
                         logging.info(f"Continuing training loop from epoch {init_epoch}.")
                         
@@ -112,7 +113,12 @@ def main(args):
                                 #     break
                                 batch = len(data[0])  # because last batch can not enough samples (!= batch size)
                                 
-                                mask_ts, x_ts = get_x_and_mask(args, data) 
+                                # mask_ts, x_ts = get_x_and_mask(args, data) 
+                                x_ts = data[0].float().to(args.device)
+                                # print("11111")
+                                # half ones and half zeros
+                                mask_ts = torch.zeros_like(x_ts)
+                                mask_ts[:, :x_ts.shape[1] // 2] = 1
                                 x_ref = torch.zeros((batch, args.seq_len, args.top_k), device=args.device)
                                 # print(f"x_ref {x_ref}") #(32,40,3)
                                 for u in range(batch):
@@ -158,8 +164,15 @@ def main(args):
                                 # create hist | mask, mask giống với x_ts
                                 mask_for_hist = mask_ts_img.expand(-1, args.top_k, -1, -1) 
                                 x_ref_hist_img = x_ref_hist_img * mask_for_hist
+                                rnd_normal = torch.randn([x_ts_img.shape[0], 1, 1, 1], device=x_ts_img.device)  #tensor cùng shape với x
+                                P_mean = -1.2
+                                P_std = 1.2
+                                sigma = (rnd_normal * P_std + P_mean).exp()
+                                n = torch.randn_like(x_ref_hist_img) * sigma
+                                noise_impute_hist = n * (1 - mask_for_hist)  # noise cho x_ref_hist_img
+                                x_ref_hist_img_to_impute = x_ref_hist_img * (1 - mask_for_hist) + noise_impute_hist
                                 # loss = model.loss_fn_impute(x_ts_img, mask_ts_img, ref = x_ref_ts_img, top_k=args.top_k,epoch=epoch, num_epochs=args.epochs)
-                                loss = model.loss_fn_impute(x_ts_img, mask_ts_img, ref_hist = x_ref_hist_img, ref_future = x_ref_future_img, top_k=args.top_k,epoch=epoch, num_epochs=args.epochs)
+                                loss = model.loss_fn_impute(x_ts_img, mask_ts_img, ref_hist = x_ref_hist_img_to_impute, ref_future = x_ref_future_img, top_k=args.top_k,epoch=epoch, num_epochs=args.epochs)
                                 
                                 if len(loss) == 2:
                                     loss, to_log = loss
@@ -197,7 +210,10 @@ def main(args):
                                         batch = len(data[0])
                 
 
-                                        mask_ts, x_ts = get_x_and_mask(args, data)
+                                        x_ts = data[0].float().to(args.device)
+                                        # half ones and half zeros
+                                        mask_ts = torch.zeros_like(x_ts)
+                                        mask_ts[:, :x_ts.shape[1] // 2] = 1
 
                                         x_ref = torch.zeros((batch, args.seq_len, args.top_k), device=args.device)
                                         for u in range(batch):
@@ -253,6 +269,13 @@ def main(args):
 
                                         mask_for_hist = mask_ts_img.expand(-1, args.top_k, -1, -1) 
                                         x_ref_hist_img = x_ref_hist_img * mask_for_hist
+                                        rnd_normal = torch.randn([x_ts_img.shape[0], 1, 1, 1], device=x_ts_img.device)  #tensor cùng shape với x
+                                        P_mean = -1.2
+                                        P_std = 1.2
+                                        sigma = (rnd_normal * P_std + P_mean).exp()
+                                        n = torch.randn_like(x_ref_hist_img) * sigma
+                                        noise_impute_hist = n * (1 - mask_for_hist)  # noise cho x_ref_hist_img
+                                        x_ref_hist_img_to_impute = x_ref_hist_img * (1 - mask_for_hist) + noise_impute_hist
                                         # sample from the model
                                         # and impute, both interpolation and extrapolation are similar just the mask is different
                                         # x_img_sampled = process.interpolate(x_ts_img, mask_ts_img, ref=x_ref_ts_img).to(x_ts_img.device)
@@ -307,7 +330,7 @@ def main(args):
                         print('hello')
                         import pandas as pd
                         filename_csv = "logs/New_Skip_Decoder_Unet_report_new.csv"
-
+                        from datetime import datetime 
                         data = {
                             "seed": [local_args.seed],
                             "diffusion steps": [local_args.diffusion_steps],
@@ -331,7 +354,8 @@ def main(args):
                             'input_channels': [args.input_channels],
                             'patience': [args.patience],
                             'learning_rate': [args.learning_rate],
-                            'weight_decay': [args.weight_decay],                           
+                            'weight_decay': [args.weight_decay],  
+                            'time_run': datetime.now().strftime('%Y-%m-%d %H:%M:%S')                          
                         }
 
                         df = pd.DataFrame(data)

@@ -129,9 +129,10 @@ class ImagenTime(nn.Module):
 
     def forward_impute(self, x, mask, ref_hist,ref_future, top_k, labels=None, augment_pipe=None, epoch=0, num_epochs=10):        # print shape of x
         #print(f"Shape of x: {x.shape}") x_ts_img, mask_ts_img (32, 1, 16, 16)
-        rnd_normal = torch.randn([x.shape[0], 1, 1, 1], device=x.device)
+        # tạo nhiễu ngẫu nhiên
+        rnd_normal = torch.randn([x.shape[0], 1, 1, 1], device=x.device)  #tensor cùng shape với x
         sigma = (rnd_normal * self.P_std + self.P_mean).exp()
-        weight = (sigma ** 2 + self.sigma_data ** 2) / (sigma * self.sigma_data) ** 2
+        weight = (sigma ** 2 + self.sigma_data ** 2) / (sigma * self.sigma_data) ** 2  #tính toán trọng số
 
         # noisy impute part
         n = torch.randn_like(x) * sigma

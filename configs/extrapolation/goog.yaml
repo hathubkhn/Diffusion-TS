@@ -4,7 +4,7 @@ batch_size: 32
 learning_rate: 0.0001 #1e-4
 weight_decay: 0.00001 #0.00001 #1e-5
 task: extrapolation
-mask_rate: 0 #0.5 # physionet and USHCN are sparse datasets that uses their own masking.
+mask_rate: 0.5 #0.5 # physionet and USHCN are sparse datasets that uses their own masking.
   # Please see  https://github.com/boschresearch/Continuous-Recurrent-Units for more information.
 # data: 
 dataset: goog
@@ -19,15 +19,15 @@ seasonal_patterns: Monthly # not in use
 freq: day
 # transform:
 use_stft: false
-delay: 3
+delay: 8
 embedding: 16 #32
 # model:
 img_resolution: 16 # 32
 input_channels: 1
-unet_channels: 64 #128 #64  #64
-ch_mult: [1, 2] #[1, 2]
-attn_resolution: [16,8] #[16, 8, 4]
-diffusion_steps: 30
+unet_channels:  64 #32 #64  #64
+ch_mult: [1,2,4,4] # [1, 2] #[1, 2]
+attn_resolution: [16,8,4] #[16, 8, 4]
+diffusion_steps: 50
 channel_mult_emb: 2
 num_blocks: 2
 dropout: 0.1
