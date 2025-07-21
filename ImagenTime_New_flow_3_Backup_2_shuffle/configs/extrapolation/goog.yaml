@@ -1,0 +1,38 @@
+# training:
+epochs: 100 # ban dau la 1000 nhe anh
+batch_size: 32
+learning_rate: 0.0001 #1e-4
+weight_decay: 0.00001 #1e-5
+task: extrapolation
+mask_rate: 0.5 # physionet and USHCN are sparse datasets that uses their own masking.
+  # Please see  https://github.com/boschresearch/Continuous-Recurrent-Units for more information.
+# data: 
+dataset: goog
+root_path: ./data/short_range
+data_path: GOOG.csv
+label_len: 0 # not in use
+seq_len: 40
+pred_len: 0 # not in use
+features: S # if you use unvariate data
+target: Close 
+seasonal_patterns: Monthly # not in use
+freq: day
+# transform:
+use_stft: false
+delay: 3 # 3 neu voi (20, 20), 8 neu voi (60, 60)
+embedding: 32 #16
+# model:
+img_resolution: 32 #16
+input_channels: 1
+unet_channels: 64  #64
+ch_mult: [1, 2]
+attn_resolution: [16, 8, 4]
+diffusion_steps: 50
+channel_mult_emb: 2
+num_blocks: 2
+dropout: 0.1
+ema: true
+ema_warmup: 100
+# logging:
+logging_iter: 5
+
