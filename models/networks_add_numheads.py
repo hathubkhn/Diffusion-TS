@@ -139,59 +139,12 @@ class GroupNorm(torch.nn.Module):
 # Performs all computation using FP32, but uses the original datatype for
 # inputs/outputs/gradients to conserve memory.
 
-import torch
-import numpy as np
-import os
-import matplotlib.pyplot as plt
-
-# Tạo thư mục nếu chưa có
-os.makedirs("self_attention", exist_ok=True)
-
 class AttentionOp(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, q, k): # q [32, 64, 256])
-        scale = np.sqrt(k.shape[1])
-        w = torch.einsum('ncq,nck->nqk', q.to(torch.float32), (k / scale).to(torch.float32))  # [B, Q, K]
-        w = w.softmax(dim=2).to(q.dtype)
+    def forward(ctx, q, k):
+        w = torch.einsum('ncq,nck->nqk', q.to(torch.float32), (k / np.sqrt(k.shape[1])).to(torch.float32)).softmax(dim=2).to(q.dtype)
         ctx.save_for_backward(q, k, w)
-
-        # Vẽ attention cho sample đầu tiên, một vài head (chúng ta reshape)
-        # AttentionOp.visualize_attention(q, k, w)
-
         return w
-
-    @staticmethod
-    def visualize_attention(q, k, w):
-        batch_idx = 0
-        num_heads_to_show = 4
-
-        # Chuyển q từ [B, C, Q] => [B, num_heads, head_dim, Q] (nếu cần)
-        # Ở đây assume C = num_heads * head_dim, ta reshape
-        B, C, Q = q.shape
-        num_heads = num_heads_to_show
-        head_dim = C // num_heads
-        q_reshaped = q.view(B, num_heads, head_dim, Q)
-        k_reshaped = k.view(B, num_heads, head_dim, Q)
-
-        for h in range(num_heads_to_show):
-            # q: [B, H, D, Q] → [D, Q]
-            qh = q_reshaped[batch_idx, h]
-            kh = k_reshaped[batch_idx, h]
-
-            # tính attention cho head h (giống forward)
-            attn = torch.einsum('cq,ck->qk', qh.to(torch.float32), (kh / np.sqrt(head_dim)).to(torch.float32))
-            attn = attn.softmax(dim=1).cpu().detach().numpy()  # [Q, K]
-
-            # Vẽ và lưu
-            plt.figure(figsize=(6, 5))
-            plt.imshow(attn, cmap="viridis")
-            plt.title(f"Sample {batch_idx} - Head {h}")
-            plt.xlabel("Key Position")
-            plt.ylabel("Query Position")
-            plt.colorbar()
-            plt.tight_layout()
-            plt.savefig(f"self_attention/sample{batch_idx}_head{h}.png")
-            plt.close()
 
     @staticmethod
     def backward(ctx, dw):
@@ -269,12 +222,19 @@ class UNetBlock(torch.nn.Module):
         #print('Shape of x before attention: ',x.shape)
 
         if self.num_heads:
-            # print(f"num of self attn {self.num_heads}")
+           
             q, k, v = self.qkv(self.norm2(x)).reshape(x.shape[0] * self.num_heads, x.shape[1] // self.num_heads, 3, -1).unbind(2)
             w = AttentionOp.apply(q, k)
             a = torch.einsum('nqk,nck->ncq', w, v)
-            x = self.proj(a.reshape(*x.shape)).add_(x)
+            x_skip = x.clone()
+            C = x.shape[1]
+            add_norm = AddGroupNorm(num_channels=C).to(x.device)
+
+            
+            x = self.proj(a.reshape(*x.shape))
+            x = add_norm(x, x_skip)
             x = x * self.skip_scale
+            
         return x
 
 
@@ -303,7 +263,7 @@ class PositionalEmbedding(torch.nn.Module):
 
 ## Cross Attention block
 class CrossAttentionBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, num_heads, top_k):
+    def __init__(self, in_channels, out_channels, top_k,num_heads ):
         super().__init__()
         self.num_heads = num_heads
         self.top_k = top_k
@@ -315,12 +275,9 @@ class CrossAttentionBlock(nn.Module):
         # self.v_proj = nn.Conv2d(top_k * out_channels, in_channels, kernel_size=1)
         self.k_proj = nn.Conv2d(out_channels, out_channels, kernel_size=1)
         self.v_proj = nn.Conv2d(out_channels, out_channels, kernel_size=1)
-    # def forward(self, x, ref_hist, ref_future, top_k, num_heads, block, block_ref_hist, block_ref_future, emb=None, block_idx='unknown', epoch=0, num_epochs=25):
-    def forward(self, x, ref_hist, ref_future, block, block_ref_hist, block_ref_future, emb=None, block_idx='unknown', epoch=0, num_epochs=25):
-
+    def forward(self, x, ref_hist, ref_future, top_k,num_heads, block, block_ref_hist, block_ref_future, emb=None, block_idx='unknown', epoch=0, num_epochs=25):
         # print("x trong forward cross ")
-        # print(f"Số heads :{self.num_heads}")
-        # print(f"K {self.top_k}")
+
         B, C, H, W = x.shape
         # self.head_dim = C // self.num_heads
         torch.set_printoptions(threshold=float('inf'), precision=3, linewidth=200)
@@ -408,7 +365,7 @@ class DhariwalUNet(torch.nn.Module):
         in_channels,                        # Number of color channels at input.
         out_channels,                       # Number of color channels at output.
         top_k = 10,                          # Number of top-k time series to use for cross-attention.    
-        num_heads = 8,                      # number of heads of cross attention
+        num_heads =4,                       # number of head for crossattention
         label_dim           = 0,            # Number of class labels, 0 = unconditional.
         augment_dim         = 0,            # Augmentation label dimensionality, 0 = no augmentation.
 
@@ -455,14 +412,14 @@ class DhariwalUNet(torch.nn.Module):
                 # self.enc_ref[f'{res}x{res}_conv'] = Conv2d(in_channels=cin, out_channels=cout, kernel=3, **init)
                 self.enc_ref_hist[f'{res}x{res}_conv'] = Conv2d(in_channels=cin, out_channels=cout, kernel=3, **init)
                 self.enc_ref_future[f'{res}x{res}_conv'] = Conv2d(in_channels=cin, out_channels=cout, kernel=3, **init)
-                self.enc_cross_attn[f'{res}x{res}_conv'] = CrossAttentionBlock(in_channels=cout, out_channels=cout, num_heads=self.num_heads, top_k = self.top_k)
+                self.enc_cross_attn[f'{res}x{res}_conv'] = CrossAttentionBlock(in_channels=cout, out_channels=cout, top_k = self.top_k, num_heads = self.num_heads)
             
             else:
                 self.enc[f'{res}x{res}_down'] = UNetBlock(in_channels=cout, out_channels=cout, down=True, **block_kwargs)
                 # self.enc_ref[f'{res}x{res}_down'] = UNetBlock(in_channels=cout, out_channels=cout, down=True, **block_kwargs)
                 self.enc_ref_hist[f'{res}x{res}_down'] = UNetBlock(in_channels=cout, out_channels=cout, down=True, **block_kwargs)
                 self.enc_ref_future[f'{res}x{res}_down'] = UNetBlock(in_channels=cout, out_channels=cout, down=True, **block_kwargs)
-                self.enc_cross_attn[f'{res}x{res}_down'] = CrossAttentionBlock(in_channels=cout, out_channels=cout, num_heads=self.num_heads, top_k = self.top_k)
+                self.enc_cross_attn[f'{res}x{res}_down'] = CrossAttentionBlock(in_channels=cout, out_channels=cout, top_k = self.top_k, num_heads = self.num_heads)
             
             for idx in range(num_blocks):
                 cin = cout
@@ -471,7 +428,7 @@ class DhariwalUNet(torch.nn.Module):
                 # self.enc_ref[f'{res}x{res}_block{idx}'] = UNetBlock(in_channels=cin, out_channels=cout, attention=(res in attn_resolutions), **block_kwargs)
                 self.enc_ref_hist[f'{res}x{res}_block{idx}'] = UNetBlock(in_channels=cin, out_channels=cout, attention=(res in attn_resolutions), **block_kwargs)
                 self.enc_ref_future[f'{res}x{res}_block{idx}'] = UNetBlock(in_channels=cin, out_channels=cout, attention=(res in attn_resolutions), **block_kwargs)
-                self.enc_cross_attn[f'{res}x{res}_block{idx}'] = CrossAttentionBlock(in_channels=cout, out_channels=cout, num_heads=self.num_heads, top_k = self.top_k)
+                self.enc_cross_attn[f'{res}x{res}_block{idx}'] = CrossAttentionBlock(in_channels=cout, out_channels=cout, top_k = self.top_k, num_heads = self.num_heads)
                 
         
         skips_x = [block.out_channels for block in self.enc.values()]
@@ -491,20 +448,20 @@ class DhariwalUNet(torch.nn.Module):
                 # self.dec_ref[f'{res}x{res}_in0'] = UNetBlock(in_channels=cout, out_channels=cout, attention=True, **block_kwargs)
                 self.dec_ref_hist[f'{res}x{res}_in0'] = UNetBlock(in_channels=cout, out_channels=cout, attention=True, **block_kwargs)
                 self.dec_ref_future[f'{res}x{res}_in0'] = UNetBlock(in_channels=cout, out_channels=cout, attention=True, **block_kwargs)
-                self.dec_cross_attn[f'{res}x{res}_in0'] = CrossAttentionBlock(in_channels=cout, out_channels=cout, num_heads=self.num_heads, top_k = self.top_k)
+                self.dec_cross_attn[f'{res}x{res}_in0'] = CrossAttentionBlock(in_channels=cout, out_channels=cout, top_k = self.top_k, num_heads = self.num_heads)
                 
                 self.dec[f'{res}x{res}_in1'] = UNetBlock(in_channels=cout, out_channels=cout, **block_kwargs)
                 # self.dec_ref[f'{res}x{res}_in1'] = UNetBlock(in_channels=cout, out_channels=cout, **block_kwargs)
                 self.dec_ref_hist[f'{res}x{res}_in1'] = UNetBlock(in_channels=cout, out_channels=cout, **block_kwargs)
                 self.dec_ref_future[f'{res}x{res}_in1'] = UNetBlock(in_channels=cout, out_channels=cout, **block_kwargs)
-                self.dec_cross_attn[f'{res}x{res}_in1'] = CrossAttentionBlock(in_channels=cout, out_channels=cout, num_heads=self.num_heads, top_k = self.top_k)
+                self.dec_cross_attn[f'{res}x{res}_in1'] = CrossAttentionBlock(in_channels=cout, out_channels=cout, top_k = self.top_k, num_heads = self.num_heads)
                 
             else:
                 self.dec[f'{res}x{res}_up'] = UNetBlock(in_channels=cout, out_channels=cout, up=True, **block_kwargs)
                 # self.dec_ref[f'{res}x{res}_up'] = UNetBlock(in_channels=cout, out_channels=cout, up=True, **block_kwargs)
                 self.dec_ref_hist[f'{res}x{res}_up'] = UNetBlock(in_channels=cout, out_channels=cout, up=True, **block_kwargs)
                 self.dec_ref_future[f'{res}x{res}_up'] = UNetBlock(in_channels=cout, out_channels=cout, up=True, **block_kwargs)
-                self.dec_cross_attn[f'{res}x{res}_up'] = CrossAttentionBlock(in_channels=cout, out_channels=cout, num_heads=self.num_heads, top_k = self.top_k)
+                self.dec_cross_attn[f'{res}x{res}_up'] = CrossAttentionBlock(in_channels=cout, out_channels=cout, top_k = self.top_k, num_heads = self.num_heads)
                 
             for idx in range(num_blocks + 1):
                 cin = cout + skips_x.pop()
@@ -514,7 +471,7 @@ class DhariwalUNet(torch.nn.Module):
                 self.dec_ref_hist[f'{res}x{res}_block{idx}'] = UNetBlock(in_channels=cin, out_channels=cout, attention=(res in attn_resolutions), **block_kwargs)
                 self.dec_ref_future[f'{res}x{res}_block{idx}'] = UNetBlock(in_channels=cin, out_channels=cout, attention=(res in attn_resolutions), **block_kwargs)
 
-                self.dec_cross_attn[f'{res}x{res}_block{idx}'] = CrossAttentionBlock(in_channels=cout, out_channels=cout, num_heads=self.num_heads, top_k = self.top_k)
+                self.dec_cross_attn[f'{res}x{res}_block{idx}'] = CrossAttentionBlock(in_channels=cout, out_channels=cout, top_k = self.top_k, num_heads = self.num_heads)
                 
         self.out_norm = GroupNorm(num_channels=cout)
         self.out_conv = Conv2d(in_channels=cout, out_channels=out_channels, kernel=3, **init_zero)
@@ -522,7 +479,6 @@ class DhariwalUNet(torch.nn.Module):
         
 
     def forward(self, x, ref_hist,ref_future, top_k,num_heads, noise_labels, class_labels, augment_labels=None, epoch=0, num_epochs=25):
-        # print(f'hhhh {num_heads}')
         # Mapping.
         # print(f"DhariwalUNet - Epoch: {epoch}, Num_epochs: {num_epochs}")
         emb = self.map_noise(noise_labels)
@@ -561,19 +517,9 @@ class DhariwalUNet(torch.nn.Module):
 
             x_skip = x.clone()
             # x, ref = block_cross(x, ref, top_k=top_k, block=block, block_ref=block_ref, emb=emb, block_idx=key, epoch=epoch, num_epochs=num_epochs)
-            # x, ref_hist, ref_future = block_cross(x, ref_hist, ref_future, top_k=top_k,num_heads=num_heads, block=block, 
-            #                          block_ref_hist=block_ref_hist, block_ref_future=block_ref_future, 
-            #                          emb=emb, block_idx=key, epoch=epoch, num_epochs=num_epochs)
-            x, ref_hist, ref_future = block_cross(
-                                        x, ref_hist, ref_future,
-                                        block=block,
-                                        block_ref_hist=block_ref_hist,
-                                        block_ref_future=block_ref_future,
-                                        emb=emb,
-                                        block_idx=key,
-                                        epoch=epoch,
-                                        num_epochs=num_epochs
-                                    )
+            x, ref_hist, ref_future = block_cross(x, ref_hist, ref_future, top_k=top_k,num_heads=num_heads, block=block, 
+                                     block_ref_hist=block_ref_hist, block_ref_future=block_ref_future, 
+                                     emb=emb, block_idx=key, epoch=epoch, num_epochs=num_epochs)
             # x, ref = block_cross(x, ref, top_k=top_k, block=block, emb=emb, block_idx=key, epoch=epoch, num_epochs=num_epochs)
             C = x.shape[1]
             add_norm = AddGroupNorm(num_channels=C).to(x.device)
@@ -618,7 +564,7 @@ class EDMPrecond(torch.nn.Module):
         img_resolution,                     # Image resolution.
         img_channels,                       # Number of color channels.
         top_k =  10,                        # Number of top-k time series to use for cross-attention.   
-        num_heads = 8,                      # Number of head of cross attention
+        num_heads = 4,
         label_dim       = 0,                # Number of class labels, 0 = unconditional.
         use_fp16        = False,            # Execute the underlying model at FP16 precision?
         sigma_min       = 0,                # Minimum supported noise level.
@@ -637,11 +583,12 @@ class EDMPrecond(torch.nn.Module):
         self.sigma_min = sigma_min
         self.sigma_max = sigma_max
         self.sigma_data = sigma_data
-        self.model = globals()[model_type](img_resolution=img_resolution, in_channels=img_channels, out_channels=img_channels, top_k = top_k, num_heads = num_heads, label_dim=label_dim, **model_kwargs)
+        self.model = globals()[model_type](img_resolution=img_resolution, in_channels=img_channels, out_channels=img_channels, top_k = top_k, label_dim=label_dim, **model_kwargs)
 
-    def forward(self, x, sigma, ref_hist, ref_future, class_labels=None, force_fp32=False, epoch=0, num_epochs=25, **model_kwargs):
-        # print(f"EDMPrecond - Num heads: {self.num_heads}")
-        x = x.to(torch.float32)
+    def forward(self, x, sigma, ref_hist,ref_future, top_k,num_heads, class_labels=None, force_fp32=False, epoch=0, num_epochs=25, **model_kwargs):
+        # print(f"EDMPrecond - Epoch: {epoch}, Num_epochs: {num_epochs}")
+        x = x.to(torch.float32) # his + fut noise  (32, 1, 16, 16) 
+        # print(f"Shape of x networks: {x.shape}") 
         sigma = sigma.to(torch.float32).reshape(-1, 1, 1, 1)
         class_labels = None if self.label_dim == 0 else torch.zeros([1, self.label_dim], device=x.device) if class_labels is None else class_labels.to(torch.float32).reshape(-1, self.label_dim)
         dtype = torch.float16 if (self.use_fp16 and not force_fp32 and x.device.type == 'cuda') else torch.float32
@@ -651,22 +598,7 @@ class EDMPrecond(torch.nn.Module):
         c_in = 1 / (self.sigma_data ** 2 + sigma ** 2).sqrt()
         c_noise = sigma.log() / 4
 
-        # Lấy top_k và num_heads từ model_kwargs hoặc sử dụng giá trị mặc định
-        top_k = model_kwargs.pop('top_k', self.top_k)
-        num_heads = model_kwargs.pop('num_heads', self.num_heads)
-
-        F_x = self.model(
-            (c_in * x).to(dtype),
-            ref_hist,
-            ref_future,
-            top_k,  # Truyền top_k như tham số vị trí
-            num_heads,  # Truyền num_heads như tham số vị trí
-            c_noise.flatten(),
-            class_labels=class_labels,
-            epoch=epoch,
-            num_epochs=num_epochs,
-            **model_kwargs  # Truyền các tham số còn lại trong model_kwargs
-        )
+        F_x = self.model((c_in * x).to(dtype), ref_hist,ref_future, top_k, num_heads, c_noise.flatten(), class_labels=class_labels, epoch=epoch, num_epochs=num_epochs, **model_kwargs)
         assert F_x.dtype == dtype
         D_x = c_skip * x + c_out * F_x.to(torch.float32)
         return D_x

@@ -143,6 +143,7 @@ def print_model_params(logger, model):
     params_num = sum(param.numel() for param in model.parameters())
     logging.info("number of model parameters: {}".format(params_num))
     logger.log_name_params('config/params_num', params_num)
+    return params_num
 
 
 # --- extrapolation and interpolation --- #
@@ -162,7 +163,7 @@ def get_x_and_mask(args, data):
     else:
         # print(args.dataset)
         if args.task == 'extrapolation':
-            x_ts = data[0].float().to(args.device)
+            x_ts = data.float().to(args.device)
             # print("11111")
             # half ones and half zeros
             mask_ts = torch.zeros_like(x_ts)

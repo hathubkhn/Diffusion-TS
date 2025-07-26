@@ -589,7 +589,7 @@ class DhariwalUNet(torch.nn.Module):
         # Decoder.
         for key in self.dec.keys():
             block = self.dec[key]
-            # block_ref = self.dec_ref[key] 
+            # block_ref = self.dec_ref[key]
             block_ref_hist = self.dec_ref_hist[key]
             block_ref_future = self.dec_ref_future[key]
             block_cross = self.dec_cross_attn[key]
@@ -597,14 +597,47 @@ class DhariwalUNet(torch.nn.Module):
             if x.shape[1] != block.in_channels:
                 #print(f"Shape of x before attention: {x.shape}")
                 x = torch.cat([x, skips.pop()], dim=1)
+                #print(f"Shape of x before attention: {x.shape}")
+
+                # ref_list = torch.chunk(ref, chunks=top_k, dim=1)
+                ref_hist_list = torch.chunk(ref_hist, chunks=top_k, dim=1)
+                ref_future_list = torch.chunk(ref_future, chunks=top_k, dim=1)
+                # kv = []
+                # skip = skips_ref.pop()
+                skip_hist = skips_ref_hist.pop()
+                skip_future = skips_ref_future.pop()
+                # skip_list = torch.chunk(skip, chunks=top_k, dim=1)
+                skip_list_hist = torch.chunk(skip_hist, chunks=top_k, dim=1)
+                skip_list_future = torch.chunk(skip_future, chunks=top_k, dim=1)
+                
+                # kv = []
+                hist = []
+                fut = []
+                # for r, s in zip(ref_list, skip_list):
+                #     r = torch.cat([r, s], dim=1)
+                #     kv.append(r)
+                for r_hist, r_future, s_hist, s_future in zip(ref_hist_list, ref_future_list, skip_list_hist, skip_list_future):
+                    r_hist = torch.cat([r_hist, s_hist], dim=1)
+                    r_future = torch.cat([r_future, s_future], dim=1)
+                    hist.append(r_hist)
+                    fut.append(r_future)
+
+                # ref = torch.cat(kv, dim=1)
+                ref_hist = torch.cat(hist, dim=1)
+                ref_future = torch.cat(fut, dim=1)
 
             x = block(x, emb)
-            # x, ref_hist, ref_future = block_cross(x, ref_hist, ref_future, top_k=top_k, block=block,
-            #                         block_ref_hist=block_ref_hist, block_ref_future=block_ref_future,
-            #                         emb=emb, block_idx=key, epoch=epoch, num_epochs=num_epochs)
-            # skips_ref_hist.append(ref_hist)
-            # skips_ref_future.append(ref_future)
-        #     print(f"Shape of x after attention: {x.shape}")
+            x_skip = x.clone()
+            # ref = block_ref(ref, emb)
+            ref_hist, ref_future = block_ref_hist(ref_hist, emb), block_ref_future(ref_future, emb)
+            # x, ref = block_cross(x, ref, top_k=top_k, block=block, block_ref=block_ref, emb=None)
+            x, ref_hist, ref_future = block_cross(x, ref_hist, ref_future, top_k=top_k, block=block,
+                                     block_ref_hist=block_ref_hist, block_ref_future=block_ref_future,
+                                     emb=None, block_idx=key, epoch=epoch, num_epochs=num_epochs)
+            C = x.shape[1]
+            add_norm = AddGroupNorm(num_channels=C).to(x.device)
+            x = add_norm(x, x_skip)
+
         x = self.out_conv(silu(self.out_norm(x)))
         return x
 

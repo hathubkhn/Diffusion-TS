@@ -42,6 +42,7 @@ def main(args):
         run_type = args.run_type
         top_k = args.top_k
         step_size = args.step_sizes
+        num_heads = args.num_cross
         convert_method = args.convert_method
         train_loader, test_loader = gen_dataloader(args)
         
@@ -52,7 +53,6 @@ def main(args):
         for model_name in args.model_name:
             for convert_method in args.convert_method:
                 
-                    for step_size in args.step_sizes:
                         # wandb.init(project=f"All_Optimize_Skip_Decoder_Unet_report_{args.epochs}_{args.top_k}_{step_size}", name="Binh")
                         early_stopping = EarlyStopping(patience=args.patience, verbose=True)
                         path = os.path.join('checkpoints', args.symbols)
@@ -61,7 +61,7 @@ def main(args):
 
                         # update args
                         local_args = copy.deepcopy(args)
-                          # (batch_size, seq_len, top_k)
+                            # (batch_size, seq_len, top_k)
 
 
                         # update local_args with specific parameters
@@ -69,6 +69,7 @@ def main(args):
                         local_args.model_name = model_name
                         local_args.convert_method = convert_method
                         local_args.top_k = top_k
+                        # local_args.num_heads = num_heads
                         local_args.step_size = step_size
                         
                         # reference = f"./ENCODE_IMAGE_UNET/{local_args.run_type}/{local_args.model_name}/{local_args.symbols}/{local_args.convert_method}/{local_args.seq_len}/{local_args.top_k}_{local_args.step_size}.pt"
@@ -91,7 +92,8 @@ def main(args):
                         if args.resume:
                             ema_model = model.model_ema if args.ema else None # load ema model if available
                             init_epoch = restore_state(args, state, ema_model=ema_model)
-                        print_model_params(logger, model)
+                        params_num =  print_model_params(logger, model)
+
                         # --- train model ---
                         logging.info(f"Continuing training loop from epoch {init_epoch}.")
                         
@@ -117,18 +119,19 @@ def main(args):
                                 
                                 # create mask & x_ts
                                 mask_ts, x_ts = get_x_and_mask(args, x_input)
-  
+
                                 
                                 mask_ts, x_ts = get_x_and_mask(args, x_input) 
                                 
                                 x_ref = ref.reshape(batch, local_args.top_k, local_args.seq_len).to(local_args.device)
-                                
+                                # print(f"shape ref {x_ref.shape}")
                                 x_ref = (x_ref - args.mean) / args.std
+                                # print(x_ref)
                                 # print(f"x_ref {x_ref}") #(32,40,3)
 
                                 batch, seq_len, top_k = x_ref.shape    # #([32, 40, 3])
                                 half = seq_len // 2
-# 2. x_hist/fut kích thước /2
+    # 2. x_hist/fut kích thước /2
                                 # x_hist = torch.zeros_like(x_ref)
                                 # x_hist[:, :half, :] = x_ref[:, :half, :]   #([32, 40, 3])
                                 x_hist = x_ref[:, :half, :]
@@ -229,12 +232,12 @@ def main(args):
                                         # x_hist = x_ref[:, :half, :]
                                         # x_future = x_ref[:, half:, :] 
 
-#20 20 
+    #20 20 
                                         # x_hist = torch.zeros_like(x_ref)
                                         # x_hist[:, :half, :] = x_ref[:, :half, :]   #([32, 20, 3])
                                         x_hist = x_ref[:, :half, :]
                                         x_future = x_ref[:, half:, :] 
-#40 40 
+    #40 40 
                                         # x_hist = x_ref    #([32, 20, 3])
                                         # x_future = x_ref
 
@@ -313,15 +316,15 @@ def main(args):
                         
                         # wandb.finish()
                         
-                        print(f"Top k: {local_args.top_k}, Step size: {local_args.step_size}, Best MSE: {best_score_mse}, Best MAE: {best_score_mae}")
+                        print(f"{args.num_cross} Top k: {local_args.top_k}, symbol {local_args.symbols} Step size: {local_args.step_size}, Best MSE: {best_score_mse}, Best MAE: {best_score_mae}")
                         
                         #csv_path = os.path.join('/home/user11/thongt/ImagenTime_New_flow_3/logs', 'best_scores.csv')
                         print('hello')
                         import pandas as pd
-                        filename_csv = "logs/New_Skip_Decoder_Unet_report_new.csv"
+                        filename_csv = "logs/New_Skip_Decoder_Unet_report_tune_goog_20.csv"
                         from datetime import datetime 
                         data = {
-                            "ablation": "down-block",
+                            "ablation": "down-block-upblock",
                             "seed": [local_args.seed],
                             "diffusion steps": [local_args.diffusion_steps],
                             "symbols": [local_args.symbols],
@@ -337,6 +340,8 @@ def main(args):
                             'epochs': [local_args.epochs], 
                             'Best_MSE': [best_score_mse],
                             'Best_MAE': [best_score_mae],
+                            'num_heads': [args.num_cross],  
+                            'delay': [args.delay], 
                             'unet_channels': [args.unet_channels], 
                             'attn_resolution': [args.attn_resolution], 
                             'ch_mult': [args.ch_mult],
@@ -345,6 +350,7 @@ def main(args):
                             'patience': [args.patience],
                             'learning_rate': [args.learning_rate],
                             'weight_decay': [args.weight_decay],  
+                            'param num': params_num,  
                             'time_run': datetime.now().strftime('%Y-%m-%d %H:%M:%S')                          
                         }
 

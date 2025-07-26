@@ -9,6 +9,7 @@ from sklearn.preprocessing import MinMaxScaler as Ori_MinMaxScaler
 from sklearn.preprocessing import StandardScaler
 
 from torch.utils.data import DataLoader, TensorDataset
+
 from data.data_provider.data_factory import data_provider
 # from data.long_range import parse_datasets 
 
@@ -98,20 +99,50 @@ def real_data_loading(args, data_name, seq_len):
     Returns:
       - data: preprocessed data.
     """
-    assert data_name in ['goog', 'amzn', 'aapl']
+    assert data_name in ['stock','goog', 'amzn', 'aapl', 'energy', 'metro']
 
-    if data_name == 'goog':
+    if args.symbols == 'GOOG':
         ori_data = np.loadtxt('./data/short_range/GOOG.csv', delimiter=",", skiprows=1)
+        print("CHạy với GOOG")
         # ori_data = pd.read_csv('./data/short_range/GOOG.csv', delimiter=",").values
         #ori_data = np.genfromtxt('./data/short_range/GOOG.csv', delimiter=",", skip_header=1, dtype=None, encoding='utf-8')
-    elif data_name == 'aapl':
+    elif args.symbols == 'AAPL':
         ori_data = np.loadtxt('./data/short_range/AAPL.csv', delimiter=",", skiprows=1)
-    elif data_name == 'amzn':
+    elif args.symbols == 'AMZN':
         ori_data = np.loadtxt('./data/short_range/AMZN.csv', delimiter=",", skiprows=1)
 
     # Flip the data to make chronological data
     #ori_data = ori_data[::-1]
 
+    # ori_data = torch.Tensor(ori_data)  # shape [N]
+
+    # train_ratio = 0.7
+    # train_size = int(len(ori_data) * train_ratio)
+    # train_data = ori_data[:train_size]
+    # test_data = ori_data[train_size:]
+
+    # scaler = Ori_MinMaxScaler() 
+    # train_data = scaler.fit_transform(train_data.reshape(-1, 1)).reshape(train_data.shape)
+    # test_data = scaler.transform(test_data.reshape(-1, 1)).reshape(test_data.shape)
+    # train_data = torch.tensor(train_data, dtype=torch.float32)
+    # test_data = torch.tensor(test_data, dtype=torch.float32)
+    # ori_data = torch.cat((train_data, test_data), dim=0)
+    # # Save mean and std 
+    # mean, std = scaler.data_min_, scaler.data_max_ - scaler.data_min_
+
+    # args.mean, args.std = torch.Tensor(mean), torch.Tensor(std)
+    
+    # args.mean, args.std = args.mean.to(args.device), args.std.to(args.device)
+
+
+    # # Preprocess the data
+    # temp_data = []
+    # # Cut data by sequence length
+    # for i in range(0, len(ori_data) - seq_len):
+    #     _x = ori_data[i:i + seq_len]
+    #     temp_data.append(_x)
+
+    # return temp_data
     ori_data = torch.Tensor(ori_data)  # shape [N]
 
     train_ratio = 0.7
@@ -119,9 +150,11 @@ def real_data_loading(args, data_name, seq_len):
     train_data = ori_data[:train_size]
     test_data = ori_data[train_size:]
 
-    scaler = Ori_MinMaxScaler()  #  StandardScaler()
+    scaler = Ori_MinMaxScaler() # StandardScaler()
     train_data = scaler.fit_transform(train_data.reshape(-1, 1)).reshape(train_data.shape)
     test_data = scaler.transform(test_data.reshape(-1, 1)).reshape(test_data.shape)
+    train_data = torch.tensor(train_data, dtype=torch.float32)
+    test_data = torch.tensor(test_data, dtype=torch.float32)
     #ori_data = torch.cat((train_data, test_data), dim=0)
     # Save mean and std 
     mean, std = scaler.data_min_, scaler.data_max_ - scaler.data_min_
@@ -155,8 +188,7 @@ def gen_dataloader(args):
 
     elif args.dataset in ['goog', 'amzn', 'aapl', 'energy']:
         train_data, test_data = real_data_loading(args, args.dataset, args.seq_len)
-        reference = f"./{args.convert_method}/{args.seq_len}/5_{args.step_sizes}.pt" #{args.model_name}, {args.convert_method}, {args.step_sizes}
-        print(f"{args.top_k} Reference file: {reference}")
+        reference = f"./ENCODE_IMAGE_UNET/{args.run_type}/ViT-B-32/{args.symbols}/gasf_gadf_linear_trend/{args.seq_len}/{args.top_k}_10.pt" #{args.model_name}, {args.convert_method}, {args.step_sizes}
         ref = torch.load(reference)
         
         train_data = torch.Tensor(np.array(train_data))
@@ -174,11 +206,11 @@ def gen_dataloader(args):
         # có seq_len - 1 sample giữa train và test không được dùng nên ko load reference
         for i in range(num_test):
             index = i + num_train + args.seq_len - 1
-            ref_i_top_5 = ref[index * 5 * args.seq_len: (index + 1) * 5 * args.seq_len]
-            ref_i = ref_i_top_5[0: args.top_k * args.seq_len]
-            # ref_i = ref[index * args.top_k * args.seq_len: (index + 1) * args.top_k * args.seq_len]
+            ref_i = ref[index * args.top_k * args.seq_len: (index + 1) * args.top_k * args.seq_len]
             ref_i = torch.tensor(ref_i, dtype=torch.float32)
             test_ref_data.append(torch.cat([test_data[i], ref_i], dim=0))
+
+
 
         # create TensorDataset and DataLoader
         train_ref_data = torch.stack(train_ref_data)
@@ -193,7 +225,6 @@ def gen_dataloader(args):
                                 num_workers= args.num_workers, drop_last=False)
 
         return train_loader, test_loader
-
 
 
 

@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from contextlib import contextmanager
-from models.networks import EDMPrecond
+from models.networks_downup import EDMPrecond
 from models.ema import LitEma
 from models.img_transformations import STFTEmbedder, DelayEmbedder
 
@@ -15,6 +15,7 @@ class ImagenTime(nn.Module):
         '''
 
         super().__init__()
+        self.num_cross = args.num_cross
         self.P_mean = -1.2
         self.P_std = 1.2
         self.sigma_data = 0.5
@@ -24,9 +25,9 @@ class ImagenTime(nn.Module):
         self.T = args.diffusion_steps
 
         self.device = device
-        self.net = EDMPrecond(args.img_resolution, args.input_channels, top_k = args.top_k, channel_mult=args.ch_mult,
+        self.net = EDMPrecond(args.img_resolution, args.input_channels, top_k = args.top_k,num_heads=args.num_cross, channel_mult=args.ch_mult,
                               model_channels=args.unet_channels, attn_resolutions=args.attn_resolution)
-
+        print(f"ImagenTime {args.num_cross}")
         # delay embedding is used
         if not args.use_stft:
             self.delay = args.delay
@@ -113,19 +114,19 @@ class ImagenTime(nn.Module):
         return loss, to_log
 
 
-    def forward(self, x, labels=None, augment_pipe=None):
+    # def forward(self, x, labels=None, augment_pipe=None):
 
-        rnd_normal = torch.randn([x.shape[0], 1, 1, 1], device=x.device)
-        sigma = (rnd_normal * self.P_std + self.P_mean).exp()
-        weight = (sigma ** 2 + self.sigma_data ** 2) / (sigma * self.sigma_data) ** 2
-        y, augment_labels = augment_pipe(x) if augment_pipe is not None else (x, None)
-        # print shape of y
+    #     rnd_normal = torch.randn([x.shape[0], 1, 1, 1], device=x.device)
+    #     sigma = (rnd_normal * self.P_std + self.P_mean).exp()
+    #     weight = (sigma ** 2 + self.sigma_data ** 2) / (sigma * self.sigma_data) ** 2
+    #     y, augment_labels = augment_pipe(x) if augment_pipe is not None else (x, None)
+    #     # print shape of y
         
 
         
-        n = torch.randn_like(y) * sigma
-        D_yn = self.net(y + n, sigma, labels, augment_labels=augment_labels)
-        return D_yn, weight
+    #     n = torch.randn_like(y) * sigma
+    #     D_yn = self.net(y + n, sigma, labels, augment_labels=augment_labels)
+    #     return D_yn, weight
 
     def forward_impute(self, x, mask, ref_hist,ref_future, top_k, labels=None, augment_pipe=None, epoch=0, num_epochs=10):        # print shape of x
         #print(f"Shape of x: {x.shape}") x_ts_img, mask_ts_img (32, 1, 16, 16)
@@ -138,7 +139,7 @@ class ImagenTime(nn.Module):
         n = torch.randn_like(x) * sigma
         noise_impute = n * (1 - mask) # noise for fut
         x_to_impute = x * (1 - mask) + noise_impute  # fut noise
-
+        ref_hist_to_impute = ref_hist * (1 - mask) + noise_impute
         # clear image
         x = x * mask  # history x --> image, seq * mask , seq * (1 - mask)
         # print("Binhnkt")
@@ -146,7 +147,18 @@ class ImagenTime(nn.Module):
         # print(x)
         y, augment_labels = augment_pipe(x) if augment_pipe is not None else (x, None)
 
-        D_yn = self.net(y + x_to_impute, sigma, ref_hist,ref_future, top_k, labels, augment_labels=augment_labels, epoch=epoch, num_epochs=num_epochs)
+        D_yn = self.net(
+                y + x_to_impute,  # Tham số vị trí: x
+                sigma,            # Tham số vị trí: sigma
+                ref_hist,         # Tham số vị trí: ref_hist
+                ref_future,       # Tham số vị trí: ref_future
+                class_labels=labels,  # Tham số từ khóa: class_labels
+                augment_labels=augment_labels,  # Tham số từ khóa
+                epoch=epoch,      # Tham số từ khóa
+                num_epochs=num_epochs,  # Tham số từ khóa
+                top_k=top_k,      # Truyền top_k qua model_kwargs
+                num_heads=self.num_cross  # Truyền num_heads qua model_kwargs
+            )
         return D_yn, weight
 
     def forward_forecast(self, past, future, labels=None, augment_pipe=None):
