@@ -1,0 +1,32 @@
+[39mnumber of model parameters: 5881921[0m
+config/params_num:
+5881921
+[39mContinuing training loop from epoch 0.[0m
+Epoch 1/100
+step 0, train/karras loss: 6.3230e-02
+step 0, train/karras loss: 7.0687e-02
+step 0, train/karras loss: 5.7611e-02
+step 0, train/karras loss: 5.6042e-02
+step 0, train/karras loss: 5.2920e-02
+step 0, train/karras loss: 4.2650e-02
+step 0, train/karras loss: 4.4503e-02
+step 0, train/karras loss: 4.8081e-02
+step 0, train/karras loss: 4.4371e-02
+step 0, train/karras loss: 4.2956e-02
+step 0, train/karras loss: 4.4155e-02
+step 0, train/karras loss: 4.1454e-02
+step 0, train/karras loss: 3.9851e-02
+step 0, train/karras loss: 3.9562e-02
+step 0, train/karras loss: 4.0308e-02
+step 0, train/karras loss: 2.9440e-02
+step 0, train/karras loss: 3.2002e-02
+step 0, train/karras loss: 3.1078e-02
+step 0, train/karras loss: 3.6107e-02
+step 0, train/karras loss: 2.9520e-02
+step 0, train/karras loss: 3.6914e-02
+step 0, train/karras loss: 2.7869e-02
+step 0, train/karras loss: 2.2138e-02
+step 0, train/karras loss: 2.4678e-02
+step 0, train/karras loss: 2.3729e-02
+step 0, train/karras loss: 2.3999e-02
+step 0, train/karras loss: 3.0610e-02

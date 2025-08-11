@@ -1,0 +1,5 @@
+*.csv
+logs/
+logs_binh/
+checkpoints/
+__pycache__

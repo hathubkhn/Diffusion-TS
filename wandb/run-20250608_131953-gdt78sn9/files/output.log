@@ -1,0 +1,266 @@
+number of model parameters: 5881921
+config/params_num:
+5881921
+Continuing training loop from epoch 0.
+Epoch 1/1000
+step 0, train/karras loss: 5.1999e-02
+step 0, train/karras loss: 8.3269e-02
+step 0, train/karras loss: 6.8637e-02
+step 0, train/karras loss: 5.7711e-02
+step 0, train/karras loss: 4.0429e-02
+step 0, train/karras loss: 3.9001e-02
+step 0, train/karras loss: 5.2710e-02
+step 0, train/karras loss: 4.5924e-02
+step 0, train/karras loss: 4.9478e-02
+step 0, train/karras loss: 4.6372e-02
+step 0, train/karras loss: 2.9719e-02
+step 0, train/karras loss: 5.9265e-02
+step 0, train/karras loss: 4.0817e-02
+step 0, train/karras loss: 3.7924e-02
+step 0, train/karras loss: 3.8424e-02
+step 0, train/karras loss: 2.7172e-02
+step 0, train/karras loss: 2.9005e-02
+step 0, train/karras loss: 5.2541e-02
+step 0, train/karras loss: 5.1876e-02
+step 0, train/karras loss: 3.7082e-02
+step 0, train/karras loss: 3.6041e-02
+step 0, train/karras loss: 2.1350e-02
+step 0, train/karras loss: 2.5007e-02
+step 0, train/karras loss: 2.1899e-02
+step 0, train/karras loss: 2.5934e-02
+step 0, train/karras loss: 3.9605e-02
+step 0, train/karras loss: 2.5443e-02
+step 0, train/karras loss: 4.7498e-02
+step 0, train/karras loss: 3.8035e-02
+step 0, train/karras loss: 3.3715e-02
+step 0, train/karras loss: 2.0102e-02
+step 0, train/karras loss: 1.8937e-02
+step 0, train/karras loss: 2.1588e-02
+step 0, train/karras loss: 2.9721e-02
+step 0, train/karras loss: 3.7969e-02
+step 0, train/karras loss: 2.4215e-02
+step 0, train/karras loss: 1.4389e-02
+step 0, train/karras loss: 2.2003e-02
+step 0, train/karras loss: 2.0858e-02
+step 0, train/karras loss: 2.5145e-02
+step 0, train/karras loss: 2.4696e-02
+step 0, train/karras loss: 1.9033e-02
+step 0, train/karras loss: 2.1704e-02
+step 0, train/karras loss: 1.9156e-02
+step 0, train/karras loss: 1.9457e-02
+step 0, train/karras loss: 2.7320e-02
+step 0, train/karras loss: 2.5210e-02
+step 0, train/karras loss: 2.2972e-02
+step 0, train/karras loss: 2.3656e-02
+step 0, train/karras loss: 2.0628e-02
+step 0, train/karras loss: 2.0441e-02
+step 0, train/karras loss: 2.5007e-02
+step 0, train/karras loss: 2.4133e-02
+step 0, train/karras loss: 3.8352e-02
+step 0, train/karras loss: 4.2415e-02
+step 0, train/karras loss: 2.5201e-02
+step 0, train/karras loss: 1.6776e-02
+step 0, train/karras loss: 3.9216e-02
+step 0, train/karras loss: 2.5715e-02
+step 0, train/karras loss: 1.8677e-02
+step 0, train/karras loss: 2.3281e-02
+step 0, train/karras loss: 1.3448e-02
+step 0, train/karras loss: 2.0169e-02
+step 0, train/karras loss: 2.8814e-02
+step 0, train/karras loss: 1.7713e-02
+step 0, train/karras loss: 1.7548e-02
+step 0, train/karras loss: 1.4588e-02
+step 0, train/karras loss: 2.3354e-02
+step 0, train/karras loss: 7.7521e-03
+step 0, train/karras loss: 1.6672e-02
+step 0, train/karras loss: 2.1215e-02
+step 0, train/karras loss: 5.7212e-03
+step 0, train/karras loss: 1.6766e-02
+step 0, train/karras loss: 2.4030e-02
+step 0, train/karras loss: 1.4125e-02
+step 0, train/karras loss: 9.8283e-03
+step 0, train/karras loss: 8.5168e-03
+step 0, train/karras loss: 2.2745e-02
+step 0, train/karras loss: 1.6971e-02
+step 0, train/karras loss: 2.0793e-02
+step 0, train/karras loss: 1.7101e-02
+step 0, train/karras loss: 1.7240e-02
+step 0, train/karras loss: 7.6745e-03
+step 0, train/karras loss: 2.1291e-02
+step 0, train/karras loss: 1.7333e-02
+step 0, train/karras loss: 1.5986e-02
+step 0, train/karras loss: 1.1934e-02
+step 0, train/karras loss: 2.6009e-02
+step 0, train/karras loss: 5.4223e-03
+step 0, train/karras loss: 1.6422e-02
+step 0, train/karras loss: 1.1256e-02
+step 0, train/karras loss: 2.5420e-02
+step 0, train/karras loss: 7.2057e-03
+step 0, train/karras loss: 2.1899e-02
+step 0, train/karras loss: 1.5212e-02
+step 0, train/karras loss: 1.2059e-02
+step 0, train/karras loss: 8.7288e-03
+step 0, train/karras loss: 9.4542e-03
+step 0, train/karras loss: 7.8225e-03
+step 0, train/karras loss: 9.6238e-03
+step 0, train/karras loss: 1.5263e-02
+step 0, train/karras loss: 7.3835e-03
+step 0, train/karras loss: 1.0492e-02
+step 0, train/karras loss: 1.0414e-02
+step 0, train/karras loss: 2.2903e-02
+step 0, train/karras loss: 1.1298e-02
+step 0, train/karras loss: 1.0339e-02
+step 0, train/karras loss: 1.5156e-02
+step 0, train/karras loss: 1.5302e-02
+step 0, train/karras loss: 1.0620e-02
+step 0, train/karras loss: 1.2584e-02
+step 0, train/karras loss: 7.2936e-03
+step 0, train/karras loss: 1.4025e-02
+step 0, train/karras loss: 2.6658e-02
+step 0, train/karras loss: 8.2055e-03
+step 0, train/karras loss: 1.2358e-02
+step 0, train/karras loss: 8.8477e-03
+step 0, train/karras loss: 2.0181e-02
+step 0, train/karras loss: 1.7894e-02
+step 0, train/karras loss: 1.6761e-02
+step 0, train/karras loss: 2.5698e-02
+step 0, train/karras loss: 1.0246e-02
+step 0, train/karras loss: 1.3453e-02
+step 0, train/karras loss: 1.5439e-02
+step 0, train/karras loss: 7.0969e-03
+step 0, train/karras loss: 2.3578e-02
+step 0, train/karras loss: 1.6463e-02
+step 0, train/karras loss: 1.3925e-02
+step 0, train/karras loss: 1.7976e-02
+step 0, train/karras loss: 8.9029e-03
+step 0, train/karras loss: 3.0532e-02
+step 0, train/karras loss: 2.5964e-02
+step 0, train/karras loss: 1.6756e-02
+step 0, train/karras loss: 1.1338e-02
+step 0, train/karras loss: 1.9976e-02
+step 0, train/karras loss: 1.0941e-02
+step 0, train/karras loss: 2.1071e-02
+step 0, train/karras loss: 1.4428e-02
+step 0, train/karras loss: 1.0793e-02
+step 0, train/karras loss: 1.6083e-02
+step 0, train/karras loss: 1.8757e-02
+step 0, train/karras loss: 1.8665e-02
+step 0, train/karras loss: 1.4880e-02
+step 0, train/karras loss: 8.3001e-03
+step 0, train/karras loss: 9.2234e-03
+step 0, train/karras loss: 1.5745e-02
+step 0, train/karras loss: 1.0257e-02
+step 0, train/karras loss: 2.3775e-02
+step 0, train/karras loss: 9.0837e-03
+step 0, train/karras loss: 1.3652e-02
+step 0, train/karras loss: 9.3432e-03
+step 0, train/karras loss: 7.2950e-03
+step 0, train/karras loss: 8.7799e-03
+step 0, train/karras loss: 1.2815e-02
+step 0, train/karras loss: 1.1743e-02
+step 0, train/karras loss: 1.1701e-02
+step 0, train/karras loss: 4.5515e-03
+step 0, train/karras loss: 1.6321e-02
+step 0, train/karras loss: 1.4325e-02
+step 0, train/karras loss: 9.7991e-03
+step 0, train/karras loss: 1.2243e-02
+step 0, train/karras loss: 8.3514e-03
+step 0, train/karras loss: 6.8005e-03
+step 0, train/karras loss: 2.0495e-02
+step 0, train/karras loss: 6.2678e-03
+step 0, train/karras loss: 2.5389e-02
+step 0, train/karras loss: 4.5200e-03
+step 0, train/karras loss: 5.0308e-03
+step 0, train/karras loss: 1.0845e-02
+step 0, train/karras loss: 1.6306e-02
+step 0, train/karras loss: 8.9273e-03
+step 0, train/karras loss: 9.4903e-03
+step 0, train/karras loss: 2.0368e-02
+step 0, train/karras loss: 1.4164e-02
+step 0, train/karras loss: 7.7123e-03
+step 0, train/karras loss: 9.6533e-03
+step 0, train/karras loss: 8.9692e-03
+step 0, train/karras loss: 4.7186e-03
+step 0, train/karras loss: 7.5531e-03
+step 0, train/karras loss: 9.7448e-03
+step 0, train/karras loss: 7.4577e-03
+step 0, train/karras loss: 8.7622e-03
+step 0, train/karras loss: 5.1581e-03
+step 0, train/karras loss: 8.3781e-03
+step 0, train/karras loss: 9.5289e-03
+step 0, train/karras loss: 8.9850e-03
+step 0, train/karras loss: 6.8722e-03
+step 0, train/karras loss: 1.6007e-02
+step 0, train/karras loss: 1.0189e-02
+step 0, train/karras loss: 1.3322e-02
+step 0, train/karras loss: 7.5700e-03
+step 0, train/karras loss: 4.6748e-03
+step 0, train/karras loss: 6.8061e-03
+step 0, train/karras loss: 1.8783e-02
+step 0, train/karras loss: 9.5148e-03
+step 0, train/karras loss: 6.9774e-03
+step 0, train/karras loss: 1.1188e-02
+step 0, train/karras loss: 7.3886e-03
+step 0, train/karras loss: 1.0582e-02
+step 0, train/karras loss: 6.9244e-03
+step 0, train/karras loss: 7.7348e-03
+step 0, train/karras loss: 5.2017e-03
+step 0, train/karras loss: 1.0736e-02
+step 0, train/karras loss: 6.4643e-03
+step 0, train/karras loss: 8.6621e-03
+step 0, train/karras loss: 1.0260e-02
+step 0, train/karras loss: 1.5162e-02
+step 0, train/karras loss: 4.7274e-03
+step 0, train/karras loss: 1.2107e-02
+step 0, train/karras loss: 7.9287e-03
+step 0, train/karras loss: 7.2635e-03
+step 0, train/karras loss: 5.4838e-03
+step 0, train/karras loss: 7.1753e-03
+Traceback (most recent call last):
+  File "/home/user11/binhnkt/ImagenTime/run_conditional.py", line 190, in <module>
+    main(args)
+  File "/home/user11/binhnkt/ImagenTime/run_conditional.py", line 116, in main
+    x_img_sampled = process.interpolate(x_ts_img, mask_ts_img).to(device)
+  File "/home/user11/miniconda3/envs/thong310/lib/python3.10/site-packages/torch/autograd/grad_mode.py", line 27, in decorate_context
+    return func(*args, **kwargs)
+  File "/home/user11/binhnkt/ImagenTime/models/sampler.py", line 168, in interpolate
+    return self.impute(x, xT, mask)
+  File "/home/user11/binhnkt/ImagenTime/models/sampler.py", line 102, in impute
+    denoised = self.net(x_hat, t_hat, class_labels).to(torch.float64)
+  File "/home/user11/miniconda3/envs/thong310/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1130, in _call_impl
+    return forward_call(*input, **kwargs)
+  File "/home/user11/binhnkt/ImagenTime/models/networks.py", line 665, in forward
+    F_x = self.model((c_in * x).to(dtype), c_noise.flatten(), class_labels=class_labels, **model_kwargs)
+  File "/home/user11/miniconda3/envs/thong310/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1130, in _call_impl
+    return forward_call(*input, **kwargs)
+  File "/home/user11/binhnkt/ImagenTime/models/networks.py", line 459, in forward
+    x = block(x, emb)
+  File "/home/user11/miniconda3/envs/thong310/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1130, in _call_impl
+    return forward_call(*input, **kwargs)
+  File "/home/user11/binhnkt/ImagenTime/models/networks.py", line 173, in forward
+    x = silu(torch.addcmul(shift, self.norm1(x), scale + 1))
+KeyboardInterrupt
+Traceback (most recent call last):
+  File "/home/user11/binhnkt/ImagenTime/run_conditional.py", line 190, in <module>
+    main(args)
+  File "/home/user11/binhnkt/ImagenTime/run_conditional.py", line 116, in main
+    x_img_sampled = process.interpolate(x_ts_img, mask_ts_img).to(device)
+  File "/home/user11/miniconda3/envs/thong310/lib/python3.10/site-packages/torch/autograd/grad_mode.py", line 27, in decorate_context
+    return func(*args, **kwargs)
+  File "/home/user11/binhnkt/ImagenTime/models/sampler.py", line 168, in interpolate
+    return self.impute(x, xT, mask)
+  File "/home/user11/binhnkt/ImagenTime/models/sampler.py", line 102, in impute
+    denoised = self.net(x_hat, t_hat, class_labels).to(torch.float64)
+  File "/home/user11/miniconda3/envs/thong310/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1130, in _call_impl
+    return forward_call(*input, **kwargs)
+  File "/home/user11/binhnkt/ImagenTime/models/networks.py", line 665, in forward
+    F_x = self.model((c_in * x).to(dtype), c_noise.flatten(), class_labels=class_labels, **model_kwargs)
+  File "/home/user11/miniconda3/envs/thong310/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1130, in _call_impl
+    return forward_call(*input, **kwargs)
+  File "/home/user11/binhnkt/ImagenTime/models/networks.py", line 459, in forward
+    x = block(x, emb)
+  File "/home/user11/miniconda3/envs/thong310/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1130, in _call_impl
+    return forward_call(*input, **kwargs)
+  File "/home/user11/binhnkt/ImagenTime/models/networks.py", line 173, in forward
+    x = silu(torch.addcmul(shift, self.norm1(x), scale + 1))
+KeyboardInterrupt

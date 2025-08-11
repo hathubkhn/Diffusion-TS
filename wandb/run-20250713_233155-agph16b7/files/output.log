@@ -1,0 +1,25 @@
+number of model parameters: 16135809
+config/params_num:
+16135809
+Continuing training loop from epoch 0.
+Epoch 1/1000
+Traceback (most recent call last):
+  File "/home/user11/binhnkt/ImagenTime/run_conditional.py", line 199, in <module>
+    main(args)
+  File "/home/user11/binhnkt/ImagenTime/run_conditional.py", line 83, in main
+    x_ts_img = model.ts_to_img(x_ts)
+  File "/home/user11/binhnkt/ImagenTime/models/model.py", line 57, in ts_to_img
+    return self.ts_img.ts_to_img(signal, True, pad_val) if pad_val else self.ts_img.ts_to_img(signal)
+  File "/home/user11/binhnkt/ImagenTime/models/img_transformations.py", line 102, in ts_to_img
+    x_image[:, :, :, i] = signal[:, :,start:end]
+IndexError: index 16 is out of bounds for dimension 3 with size 16
+Traceback (most recent call last):
+  File "/home/user11/binhnkt/ImagenTime/run_conditional.py", line 199, in <module>
+    main(args)
+  File "/home/user11/binhnkt/ImagenTime/run_conditional.py", line 83, in main
+    x_ts_img = model.ts_to_img(x_ts)
+  File "/home/user11/binhnkt/ImagenTime/models/model.py", line 57, in ts_to_img
+    return self.ts_img.ts_to_img(signal, True, pad_val) if pad_val else self.ts_img.ts_to_img(signal)
+  File "/home/user11/binhnkt/ImagenTime/models/img_transformations.py", line 102, in ts_to_img
+    x_image[:, :, :, i] = signal[:, :,start:end]
+IndexError: index 16 is out of bounds for dimension 3 with size 16

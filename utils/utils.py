@@ -119,7 +119,8 @@ def create_model_name_and_dir(args):
             f'-lr={args.learning_rate:.4f}-'
             f'ch_mult={args.ch_mult}-'
             f'attn_res={args.attn_resolution}-'
-            f'unet_ch={args.unet_channels}'
+            f'unet_ch={args.unet_channels}-'
+            f'seed={args.seed}'
             )
     if args.use_stft:
         assert (args.n_fft is not None and args.hop_length is not None)

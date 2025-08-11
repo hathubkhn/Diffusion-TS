@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from contextlib import contextmanager
-from models.networks import EDMPrecond
+from models.networks_ori import EDMPrecond
 from models.ema import LitEma
 from models.img_transformations import STFTEmbedder, DelayEmbedder
 
@@ -106,6 +106,21 @@ class ImagenTime(nn.Module):
 
         return loss, to_log
 
+    def loss_fn_forecast(self, x, mask):
+        '''
+        x          : real data if idx==None else perturbation data
+        idx        : if None (training phase), we perturbed random index.
+        '''
+
+        to_log = {}
+        output, weight = self.forward_forecast(x, mask)
+        x = self.unpad(x * (1 - mask), x.shape)
+        output = self.unpad(output * (1 - mask), x.shape)
+        loss = (weight * (output - x).square()).mean()
+        to_log['karras loss'] = loss.detach().item()
+
+        return loss, to_log
+
 
     def forward(self, x, labels=None, augment_pipe=None):
 
@@ -113,6 +128,10 @@ class ImagenTime(nn.Module):
         sigma = (rnd_normal * self.P_std + self.P_mean).exp()
         weight = (sigma ** 2 + self.sigma_data ** 2) / (sigma * self.sigma_data) ** 2
         y, augment_labels = augment_pipe(x) if augment_pipe is not None else (x, None)
+        # print shape of y
+        print(f"Shape of y: {y.shape}")
+
+        
         n = torch.randn_like(y) * sigma
         D_yn = self.net(y + n, sigma, labels, augment_labels=augment_labels)
         return D_yn, weight
