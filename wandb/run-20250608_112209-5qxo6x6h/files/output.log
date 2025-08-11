@@ -1,7 +1,0 @@
-wandb: 500 encountered ({"errors":[{"message":"An internal error occurred. Please contact support.","path":["upsertBucket"]}],"data":{"upsertBucket":null}}), retrying request
-number of model parameters: 5881921
-config/params_num:
-5881921
-Continuing training loop from epoch 0.
-train/epoch:
-0

@@ -3,3 +3,4 @@ logs/
 logs_binh/
 checkpoints/
 __pycache__
+wandb/
